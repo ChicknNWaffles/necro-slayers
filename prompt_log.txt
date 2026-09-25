@@ -1,0 +1,11 @@
+I am a computer science student in an AI class. For my first assignment I have been tasked with vibe-coding a 3d videogame to get a first hand feel for what the frontier of the technology is capable of. My professor wants me to turn in the repo for the game, and a log of the prompts that I used. I am being graded not on the quality of the game, but on how I utilize AI in the creation of it. Please create a text file in which you keep a running log of every prompt I give you from here on, including this one, separated by a blank line between each prompt. Every time I give you a new prompt, I want you to edit the document and add the prompt to it. Additionally, please tell me the location you are creating the document in so that I can double check that you have created it properly, and are properly recording my prompts
+
+Here is a folder for you to use
+
+I would like to make my 3d game in html with css and javascript, but run it locally. Please do all the necessary boilerplate setup for a simple electron app that can run such a game. I want it at a stage where I can open the app and be greeted with a white screen saying "hello world"
+
+why don't you have internet connection? my computer has internet. Also, I see an option to "keep going in Claude Code". Is this not Claude Code?
+
+I began this project in Claude Cowork thinking it was Claude Code. I have given you access to the folder the other Claude was working in. In it is a file called prompt_log.txt. It contains a log of all of the prompts I gave the other Claude. Each prompt within it is separated by an empty line. Please read it to recover the context of the project so we may continue. Pay extra attention to the first prompt as it contains a command that I want carried out with every prompt in our conversation.
+
+yes, please set up the git repo, and then run the commands you have just said. Also for your information, the other Claude mentioned that preload.js is for loading save files later, the src folder is for the game itself, and renderer.js is the renderer.

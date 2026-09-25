@@ -1,0 +1,14 @@
+{
+  "name": "vibecode-3d-game",
+  "version": "0.1.0",
+  "description": "A 3D game built with HTML, CSS and JavaScript, running locally in Electron.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "Elora",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^37.0.0"
+  }
+}
