@@ -10,14 +10,19 @@ const FALL_LIMIT = -30;   // respawn if the player falls this far below the floo
 
 // --- Player --------------------------------------------------------------
 
-const PLAYER = { radius: 0.5, height: 2, speed: 8 };
+const PLAYER = { radius: 0.5, height: 2, speed: 8, jumpSpeed: 8 }; // jump height = jumpSpeed² / (2 × GRAVITY) = 1.6
 const SPAWN = { x: 0, y: 2, z: 0 };
+
+// Pressing jump while falling this close to the floor still jumps, as soon as
+// the player lands.
+const JUMP_BUFFER_HEIGHT = 0.75;
 
 const player = {
   position: { ...SPAWN }, // position of the player's feet
   yaw: 0,                 // facing direction in radians; 0 faces -Z
   velocityY: 0,
   onGround: false,
+  jumpBuffered: false,    // jump was pressed just before landing
 };
 
 // --- Camera --------------------------------------------------------------
@@ -108,6 +113,9 @@ window.addEventListener('blur', () => {
   stopOrbit();
 });
 
+// Set by a right click (see the mouse handlers below) and used up on the next frame.
+let jumpRequested = false;
+
 // True if any key bound to the action is held (e.g. both W and ArrowUp).
 function isActionHeld(action) {
   for (const key of heldKeys) {
@@ -120,6 +128,13 @@ function isActionHeld(action) {
 
 function isAboveFloor(x, z) {
   return Math.abs(x) <= FLOOR.width / 2 && Math.abs(z) <= FLOOR.depth / 2;
+}
+
+function isFallingNearFloor() {
+  const pos = player.position;
+  return player.velocityY < 0
+    && isAboveFloor(pos.x, pos.z)
+    && pos.y - FLOOR.y <= JUMP_BUFFER_HEIGHT;
 }
 
 function updatePlayer(dt) {
@@ -140,6 +155,17 @@ function updatePlayer(dt) {
     pos.z += (-cos * forward - sin * strafe) * step;
   }
 
+  // Jumping: only possible while standing on the floor. A jump pressed just
+  // before landing is remembered and happens as soon as the player lands.
+  if (jumpRequested && !player.onGround && isFallingNearFloor()) {
+    player.jumpBuffered = true;
+  }
+  if ((jumpRequested || player.jumpBuffered) && player.onGround) {
+    player.velocityY = PLAYER.jumpSpeed;
+    player.jumpBuffered = false;
+  }
+  jumpRequested = false;
+
   // Gravity.
   const previousY = pos.y;
   player.velocityY -= GRAVITY * dt;
@@ -157,6 +183,7 @@ function updatePlayer(dt) {
   if (pos.y < FALL_LIMIT) {
     Object.assign(pos, SPAWN);
     player.velocityY = 0;
+    player.jumpBuffered = false;
   }
 }
 
@@ -194,6 +221,18 @@ renderer.canvas.addEventListener('click', () => {
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === renderer.canvas) onMouseMove(e.movementX, e.movementY);
 });
+
+// Right click jumps (only while the game has the mouse).
+const RIGHT_MOUSE_BUTTON = 2;
+
+document.addEventListener('mousedown', (e) => {
+  if (e.button === RIGHT_MOUSE_BUTTON && document.pointerLockElement === renderer.canvas) {
+    jumpRequested = true;
+  }
+});
+
+// Don't open a context menu on right click.
+document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 let lastTime = performance.now();
 

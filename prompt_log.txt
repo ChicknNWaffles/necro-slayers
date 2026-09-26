@@ -29,3 +29,17 @@ Please make it so that the movement controls are relative to the horizontal dire
 please run the game so I can test it myself
 
 this is much better. Please commit the changes and push the commit
+
+never mind about pushing
+
+please run the game again so I can show someone my progress
+
+now I want to implement jumping by right clicking the mouse
+
+please run the game so I can test it myself
+
+please make it so that if the player tries to jump again while near the ground but not quite landed yet, they still jump anyway
+
+please run the game so I can test it myself
+
+this feels good. Please commit this change

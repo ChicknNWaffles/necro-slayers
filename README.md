@@ -22,6 +22,7 @@ npm start
 | Move back     | `S` / `↓`      |
 | Move left     | `A` / `←`      |
 | Move right    | `D` / `→`      |
+| Jump          | Right click    |
 | Turn / look up and down | Mouse (captured when the game opens) |
 | Release the mouse | `Esc` (click the game to capture it again) |
 | Orbit camera around the player | Hold `Shift` + move the mouse |
