@@ -43,3 +43,17 @@ please make it so that if the player tries to jump again while near the ground b
 please run the game so I can test it myself
 
 this feels good. Please commit this change
+
+Next I want to implement a run mechanic. When capslock is active, have the play movement increased, and when capslock is not active, it will go back to normal
+
+please make it so that backwards movement is slower than forwards movement. running should still be faster than walking, in all of it's speed brackets
+
+do you know you just recieved an error?
+
+please run the game so I can test it myself
+
+please make it so that the determiner of slower movement speed for backwards movement is relative to the direction of the character and not the camera
+
+please run the game so I can test it myself
+
+please commit these changes

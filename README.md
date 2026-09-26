@@ -23,6 +23,7 @@ npm start
 | Move left     | `A` / `←`      |
 | Move right    | `D` / `→`      |
 | Jump          | Right click    |
+| Run           | Turn on `Caps Lock` (turn it off to walk) |
 | Turn / look up and down | Mouse (captured when the game opens) |
 | Release the mouse | `Esc` (click the game to capture it again) |
 | Orbit camera around the player | Hold `Shift` + move the mouse |

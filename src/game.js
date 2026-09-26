@@ -10,7 +10,14 @@ const FALL_LIMIT = -30;   // respawn if the player falls this far below the floo
 
 // --- Player --------------------------------------------------------------
 
-const PLAYER = { radius: 0.5, height: 2, speed: 8, jumpSpeed: 8 }; // jump height = jumpSpeed² / (2 × GRAVITY) = 1.6
+const PLAYER = {
+  radius: 0.5,
+  height: 2,
+  speed: 8,      // walking
+  runSpeed: 14,  // while Caps Lock is on
+  backwardSpeedFactor: 0.6, // moving backwards is this fraction of walk/run speed
+  jumpSpeed: 8,  // jump height = jumpSpeed² / (2 × GRAVITY) = 1.6
+};
 const SPAWN = { x: 0, y: 2, z: 0 };
 
 // Pressing jump while falling this close to the floor still jumps, as soon as
@@ -116,6 +123,16 @@ window.addEventListener('blur', () => {
 // Set by a right click (see the mouse handlers below) and used up on the next frame.
 let jumpRequested = false;
 
+// Caps Lock on = running. Its state can be read from any keyboard or mouse
+// event, so check it on all of them (mouse movement keeps it up to date).
+let capsLockOn = false;
+
+for (const type of ['keydown', 'keyup', 'mousemove', 'mousedown']) {
+  window.addEventListener(type, (e) => {
+    capsLockOn = e.getModifierState('CapsLock');
+  });
+}
+
 // True if any key bound to the action is held (e.g. both W and ArrowUp).
 function isActionHeld(action) {
   for (const key of heldKeys) {
@@ -145,14 +162,24 @@ function updatePlayer(dt) {
   const strafe = Number(isActionHeld('right')) - Number(isActionHeld('left'));
   const length = Math.hypot(forward, strafe);
   if (length > 0) {
-    // Normalise so diagonal movement isn't faster.
-    const step = (PLAYER.speed * dt) / length;
+    // Direction of movement in the world, normalised so diagonals aren't faster.
+    // For a yaw, forward is (-sin, -cos) and right is (cos, -sin) in the XZ plane.
     const yaw = getCameraYaw();
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
-    // Forward is (-sin, -cos) and right is (cos, -sin) in the XZ plane.
-    pos.x += (-sin * forward + cos * strafe) * step;
-    pos.z += (-cos * forward - sin * strafe) * step;
+    const dirX = (-sin * forward + cos * strafe) / length;
+    const dirZ = (-cos * forward - sin * strafe) / length;
+
+    // Moving away from the way the character faces (not the camera) is slower.
+    const facingX = -Math.sin(player.yaw);
+    const facingZ = -Math.cos(player.yaw);
+    const movingBackward = dirX * facingX + dirZ * facingZ < 0;
+
+    let speed = capsLockOn ? PLAYER.runSpeed : PLAYER.speed;
+    if (movingBackward) speed *= PLAYER.backwardSpeedFactor;
+
+    pos.x += dirX * speed * dt;
+    pos.z += dirZ * speed * dt;
   }
 
   // Jumping: only possible while standing on the floor. A jump pressed just
