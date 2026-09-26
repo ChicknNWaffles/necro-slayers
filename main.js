@@ -1,6 +1,15 @@
 // Electron main process: creates the app window and loads the game page.
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+
+// Capture the mouse for the game. Browsers only allow pointer lock after a
+// click; running the request as a user gesture lets the game capture the
+// mouse as soon as it opens, without one.
+ipcMain.on('capture-mouse', (event) => {
+  event.sender
+    .executeJavaScript('document.querySelector("canvas")?.requestPointerLock()', true)
+    .catch(() => {}); // can fail if the window isn't focused yet; the game retries
+});
 
 function createWindow() {
   const win = new BrowserWindow({

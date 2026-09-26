@@ -9,3 +9,23 @@ why don't you have internet connection? my computer has internet. Also, I see an
 I began this project in Claude Cowork thinking it was Claude Code. I have given you access to the folder the other Claude was working in. In it is a file called prompt_log.txt. It contains a log of all of the prompts I gave the other Claude. Each prompt within it is separated by an empty line. Please read it to recover the context of the project so we may continue. Pay extra attention to the first prompt as it contains a command that I want carried out with every prompt in our conversation.
 
 yes, please set up the git repo, and then run the commands you have just said. Also for your information, the other Claude mentioned that preload.js is for loading save files later, the src folder is for the game itself, and renderer.js is the renderer.
+
+you are wrong. renderer.js is not the main game script, it is only the 3d renderer. The main game script goes in the src folder. You may want to create a .js file in there for that.
+
+You can commit later. I want to do a few more steps first. For now, I want you to delete the "hello world" and replace it with a flat horizontal plane. This plane is the floor, so it must have collision. I then want you to create a simple capsule for the player with a camera attached to it. I want you to implement simple, non case sensitive, player controls on this capsule, with wasd and arrow keys for movement
+
+please run the game so I can test it myself
+
+please increase movement speed a little bit. Also, please make it so that the camera can look around by moving the mouse. I also want it so that if you hold shift, it will change the way the camera moves so that the instead of staying behind the player and looking around, it snaps to where the player is in the bottom middle of the screen and rotates around the player with movement so you can see the player from all sides. This can also be used to look behind the player without the player turning around. When you release shift the camera snaps back behind the player and regular camera movement resumes
+
+I don't want the camera capture to be initiated with a click or able to be stopped. Please make it automatically capture the mouse upon opening the game
+
+oh, was the escape for when people click off of the game? in that case you can keep that so that it releases the mouse. Make it so that it still automatically captures the mouse on startup, but if the mouse is released it doesn't automatically recapture it. It can be recaptured by clicking
+
+please run the game so I can test it myself
+
+Please make it so that the movement controls are relative to the horizontal direction of the camera and not the direction of the player. The current setup is disorienting. Also, the secondary camera that orbits the player when shift is held, please make it's angle of looking down at the player the same as the camera that stays behind. I want it to be a seamless transition between the two cameras so that it seems not like switching between cameras, but changing the movement of one camera. It can still be implemented as two cameras if that helps, but I want it seamless
+
+please run the game so I can test it myself
+
+this is much better. Please commit the changes and push the commit
