@@ -24,12 +24,18 @@ const SPAWN = { x: 0, y: 2, z: 0 };
 // the player lands.
 const JUMP_BUFFER_HEIGHT = 0.75;
 
+// Holding a sideways key turns the character's body this far towards that
+// side (the camera and facing direction are unaffected).
+const STRAFE_TURN_ANGLE = 40 * Math.PI / 180;
+const STRAFE_TURN_RATE = 15; // how quickly the body turns into and out of it
+
 const player = {
   position: { ...SPAWN }, // position of the player's feet
   yaw: 0,                 // facing direction in radians; 0 faces -Z
   velocityY: 0,
   onGround: false,
   jumpBuffered: false,    // jump was pressed just before landing
+  strafeTurn: 0,          // extra body rotation while moving sideways (visual only)
 };
 
 // --- Camera --------------------------------------------------------------
@@ -161,6 +167,7 @@ function updatePlayer(dt) {
   const forward = Number(isActionHeld('forward')) - Number(isActionHeld('back'));
   const strafe = Number(isActionHeld('right')) - Number(isActionHeld('left'));
   const length = Math.hypot(forward, strafe);
+  let sideways = 0; // +1 moving to the character's right, -1 to their left
   if (length > 0) {
     // Direction of movement in the world, normalised so diagonals aren't faster.
     // For a yaw, forward is (-sin, -cos) and right is (cos, -sin) in the XZ plane.
@@ -173,7 +180,15 @@ function updatePlayer(dt) {
     // Moving away from the way the character faces (not the camera) is slower.
     const facingX = -Math.sin(player.yaw);
     const facingZ = -Math.cos(player.yaw);
-    const movingBackward = dirX * facingX + dirZ * facingZ < 0;
+    const forwardAmount = dirX * facingX + dirZ * facingZ;
+    const movingBackward = forwardAmount < 0;
+
+    // Sideways relative to the character (not the camera), for the body turn.
+    // Moving backwards (including backward diagonals) doesn't turn the body.
+    // The small dead zones stop tiny angles, e.g. walking almost straight
+    // ahead while orbiting, from counting.
+    const rightAmount = dirX * -facingZ + dirZ * facingX; // character's right is (-facingZ, facingX)
+    if (Math.abs(rightAmount) > 0.1 && forwardAmount > -0.1) sideways = Math.sign(rightAmount);
 
     let speed = capsLockOn ? PLAYER.runSpeed : PLAYER.speed;
     if (movingBackward) speed *= PLAYER.backwardSpeedFactor;
@@ -181,6 +196,11 @@ function updatePlayer(dt) {
     pos.x += dirX * speed * dt;
     pos.z += dirZ * speed * dt;
   }
+
+  // Turn the body towards the side being moved to (right is a negative yaw),
+  // easing back to the normal orientation when sideways movement stops.
+  const targetTurn = -sideways * STRAFE_TURN_ANGLE;
+  player.strafeTurn += (targetTurn - player.strafeTurn) * (1 - Math.exp(-STRAFE_TURN_RATE * dt));
 
   // Jumping: only possible while standing on the floor. A jump pressed just
   // before landing is remembered and happens as soon as the player lands.
@@ -270,7 +290,7 @@ function frame(now) {
 
   updateCamera(dt);
   updatePlayer(dt);
-  renderer.updatePlayer(player.position, player.yaw);
+  renderer.updatePlayer(player.position, player.yaw + player.strafeTurn);
   renderer.updateCamera({ yaw: getCameraYaw(), pitch: camera.pitch });
   renderer.render();
 

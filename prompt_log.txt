@@ -57,3 +57,13 @@ please make it so that the determiner of slower movement speed for backwards mov
 please run the game so I can test it myself
 
 please commit these changes
+
+please make it so that moving sideways rotates the player 40 degrees in the direction they are turning. This should have no effect on the camera. When the sideways movement button is released, they should go back to their previous orientation
+
+please run the game so I can test it myself
+
+please make it so that backwards movement does not activate the left right character rotation
+
+please run the game so I can test it myself
+
+please commit the changes
