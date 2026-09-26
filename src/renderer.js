@@ -2,9 +2,10 @@
 // Game logic does not belong here -- that lives in game.js. The game tells the
 // renderer what exists and where it is; the renderer only draws it.
 import * as THREE from '../node_modules/three/build/three.module.js';
+import { CharacterModel } from './characterModel.js';
 
 // Third-person camera: circles a point at the player's chest, `distance` away.
-const CAMERA = { distance: 7, pivotHeight: 1.5 };
+const CAMERA = { distance: 4.5, pivotHeight: 1.5 };
 const CAMERA_MIN_HEIGHT = 0.3; // keep the camera above the floor
 
 export class GameRenderer {
@@ -59,26 +60,17 @@ export class GameRenderer {
     this.scene.add(grid);
   }
 
-  // The player capsule, with a visor on the front so you can tell which way it faces.
-  addPlayer({ radius, height }) {
+  // The player's character model, built from their appearance (see characterModel.js).
+  addPlayer(appearance) {
     this.player = new THREE.Group(); // origin is at the player's feet
-
-    const capsule = new THREE.Mesh(
-      new THREE.CapsuleGeometry(radius, height - 2 * radius, 8, 16),
-      new THREE.MeshStandardMaterial({ color: 0x3a6ff7 }),
-    );
-    capsule.position.y = height / 2;
-    capsule.castShadow = true;
-    this.player.add(capsule);
-
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(radius * 1.2, radius * 0.35, radius * 0.5),
-      new THREE.MeshStandardMaterial({ color: 0x222222 }),
-    );
-    visor.position.set(0, height - radius * 0.9, -radius * 0.85); // front is -Z
-    this.player.add(visor);
-
+    this.playerModel = new CharacterModel(appearance);
+    this.player.add(this.playerModel.root);
     this.scene.add(this.player);
+  }
+
+  // Redraw the player with a new appearance (e.g. from a character creator).
+  setPlayerAppearance(appearance) {
+    this.playerModel.setAppearance(appearance);
   }
 
   updatePlayer(position, yaw) {

@@ -1,6 +1,7 @@
 // Main game script: game state, rules, input handling and the game loop.
 // Uses the 3D renderer (renderer.js) to draw each frame.
 import { GameRenderer } from './renderer.js';
+import { createAppearance } from './characterAppearance.js';
 
 // --- World ---------------------------------------------------------------
 
@@ -11,8 +12,6 @@ const FALL_LIMIT = -30;   // respawn if the player falls this far below the floo
 // --- Player --------------------------------------------------------------
 
 const PLAYER = {
-  radius: 0.5,
-  height: 2,
   speed: 8,      // walking
   runSpeed: 14,  // while Caps Lock is on
   backwardSpeedFactor: 0.6, // moving backwards is this fraction of walk/run speed
@@ -36,7 +35,15 @@ const player = {
   onGround: false,
   jumpBuffered: false,    // jump was pressed just before landing
   strafeTurn: 0,          // extra body rotation while moving sideways (visual only)
+  appearance: createAppearance(), // how the character looks (see characterAppearance.js)
 };
+
+// Change how the player looks, e.g. from a character creator. Accepts a full
+// or partial appearance; anything missing or invalid keeps its current value.
+export function setPlayerAppearance(values) {
+  player.appearance = createAppearance(values, player.appearance);
+  renderer.setPlayerAppearance(player.appearance);
+}
 
 // --- Camera --------------------------------------------------------------
 
@@ -238,7 +245,7 @@ function updatePlayer(dt) {
 
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
-renderer.addPlayer(PLAYER);
+renderer.addPlayer(player.appearance);
 
 // Mouse look: the mouse is captured automatically when the game opens.
 // Esc or switching windows releases it; clicking the game captures it again.

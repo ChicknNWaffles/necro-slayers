@@ -67,3 +67,85 @@ please make it so that backwards movement does not activate the left right chara
 please run the game so I can test it myself
 
 please commit the changes
+
+Next I want to work on creating the actual character model. Later in this process, I am going to make it able to be edited with a character creator, so please make it dynamic enough to be effected by a character creator
+
+I don't like the style you went with. I guess I didn't describe enough. I do want it humanoid, but I want it to be smoother, and more detailed, more similar to anime style
+
+I want it to look more sculpted. most aggregiously on the body, you are missing the sternocleidomastoid muscle and they have almost no neck. There's a lot wrong with the heads faces and hair, as well as the hands, but I will get to that later
+
+can I see an example render of what you have come up with for the character model, so I can give further edits?
+
+The necks are now too long, and also it seems I  mentioned the wrong muscle name (although I do still want this muscle there, although not as pronounced). I meant to address the lack of the trapezius muscle. I want this sculpted character design looking more on the realistic proportions side of anime rather than the more stylized side of anime
+
+This is an improvement. I now want to address the shoulders. I want the torso to transition seamlessly into the shoulders and arms as one sculpt. Right now it kind of looks like they've all got puffy sleaves. While some character designs may have puffy sleeves in their clothes, I will deal with that later and don't want the base body to have that bump
+
+please give them shoulder blades which should help fill in that strange divet on their backs. just under the neck. Also the buttox is unnaturally short, make the bottom of it go lower
+
+can you please show me a render of what you have made so far for the character model, specifically I want to check the status of the dip in the upper back you supposedly removed
+
+I'm not talking about the line-dent between the shoulder blades. That is supposed to be there. Now that I'm seeing the harsh shaded bare back render you provided I'm seeing the cause of the issue. The base of the neck on the back is this huge swollen looking lump. This causes the appearance of a divet from the side view where it stops. Please smooth that out so the back of the neck smoothly goes into the top of the shoulder blades
+
+This is much better! Now I want to address the arms. This should be a small edit. I want the curvature of the forearm to be less like a stretched out inverted teardrop and more like a kite shape with the corners rounded off. I also want the crosssection of it to be an oval instead of a circle, so that it has the specified curvature in the direction perpendicular to the bend of the elbow, but not in the direction of the bend of the elbow
+
+There is a sphere at the elbow. Please make the elbow look more like a real one, with the correct muscle geometry
+
+I'm still not fully happy with the shoulders, too spherical for me. Can you make them look more accurate with the correct muscle geometry as well?
+
+please make the curvature of the upper arm more smooth from shoulder to elbow
+
+please make the deltoids less pronounced from side to side
+
+Now lets deal with the hands. I don't want them to just be ovals. Please give the model detailed hands, complete with individual fingers, a thenar eminence, and palm lines
+
+the palm looks swollen and the thumb is merging into the hand. Please make the palm at scale with the fingers, and make the thumb distinct
+
+please put more of a dent in the middle of the palm between the palm pads to make them look more pronounced without making the palm thicker. Also please reduce the knuckle size further
+
+please show another render of the hand you just edited from the front side of the body/side view of the hand so I can get a better view of what the knuckles now look like
+
+please shift the base of the fingers further back on the end of the palm so that the knuckle is the only thing creating the bump
+
+You moved them the wrong direction. Please move them to the other edge
+
+please smooth transition from base of finger to palm a little bit. I still want there to be a little bit of bump where the palm starts, but not as much as there is now
+
+please make it so that the knuckles don't cause a bump from the side of the hand, but still on the back of the hand
+
+you flattened them in the wrong direction. I want a bumps on the back of the hand to remain. I just don't want bumps on the side of the hands
+
+Now there's weird dots of lineart showing up between the nuckles. Please fix that. Also the knuckles between the finger segments are kind  of large and spherical. Please shrink them again
+
+please make the thumb a little longer and the hands softer
+
+It looks like you moved the knuckles lower, I didn't want those moved. I wanted the thumb longer. Also there's a divet on the side of the palm where it meets the knuckles now
+
+the fingers seem to separate from each other too far down, please bring the separation point a bit higher
+
+raise the height of the knuckles just a little bit
+
+I didn't mean how far they protrude, I meant where in the palm they come out from
+
+The mid-finger knuckles are seeming a bit spherical again. Also please add a trapazoidal shaped taper to the tips of the fingers, with rounded edges. Do this on all the fingers including the thumb
+
+now make the tips of the trapazoidal slope shifted so that they are further towards the side of the finger on the back of the hand. For the thumb, make sure that it works the way it does for the rest of the fingers, despite the thumb being oriented differently
+
+now give me a render showing the hand with the wrist and part of the arm so I can tell you how to adjust that transition
+
+please scale up the entire hand so that the base of the hand is similar in size to the wrist end of the arm. First though, please scale down the size of the wrist end of the arm a little bit,  thus making the angle of the tapered arm a little more dramatic
+
+Please either turn the arm orientation to match the orientation of the hand, or vice versa. Also, please scale the hand up a little bit more, and blend the hand into the arm like you did for the torso and arms. Also, are the legs joined to the torso in the same way as the arms? If not, I want them to be
+
+Now, please make the point where the buttox attaches to the back of the thigh a bit lower on the thigh. It's still unnaturally short
+
+it should be less of a half circle and more like a half egg
+
+please make the line art on the whole body thin like it is on the hands
+
+Now I want to change the feet, I don't want them to be ovals. Please make them the vauge shape and sillouette of a foot part of a boot
+
+I only meant boot as a way to simplify and stylize the feet without oversimpliying it. No need for the sole of the boot. Also, pleas make it smoothly transition into the bottom of the leg with a triangle-like shape as it approaches the leg. Also please make the foot not so lumpy
+
+please make the transition into the leg a little higher/steeper. Also, there's a random bump on the back of the heel. Please get rid of that
+
+please commit these changes since we are approaching the usage limit
