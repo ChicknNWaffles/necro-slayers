@@ -223,3 +223,41 @@ Try again
 I began this project in a different session. There is a file in this folder called prompt_log.txt which contains a log of all of my prompts thus far, delinated by a blank line between them. Please read it to recover the context. Especially pay attention to the first prompt, as it contains a standing command to be obeyed with every prompt
 
 the changes were checked in the previous session's response to "try again". Please commit the changes
+
+please add an npc using the character models we created. It doesn't have to be able to be altered by the character editor like the player's one does. Make it a pale red headed female in a long white dress with flowy sleeves. The hair should form a large thick bread going down the back, with the hair above the braid muffin-toping over the hair tie. The braid should go down to the knees. She has an off center part to the right, with bangs sweeping to the left. The dress should have a boat neck and the skirt should be large and flowy. The npc should be a bit shorter than the default height of the player. She has green eyes. Place her in somewhere to the side in the scene standing on the same floor
+
+I didn't want the skirt that full and wide. Please make it smaller. I still want it flowy, but not that full. Also, please make it around calf length and add brown sandals. Also I meant the other way with the hair part and bangs. Also please add freckles and a light blush. Her name is Evalyn and she's a cleric
+
+please widen the neck to be more like a real boat neck, as in almost off the shoulder. Also please make the black line art at the neck line as thin as that on the rest of the model. Also please make her eyes more saturated, and the sleeves a little shorter
+
+I said almost off the shoulder, not actually off the shoulder. The sides of the neck line should hit at the edge of the shoulder, right at that point on the curve of the shoulder where it goes from being more horizontal to more vertical. Also please increase the blush
+
+also please make the sleeves end mid forearm
+
+there are weird corners on the neckline. Please smooth that
+
+Make the npc enble to wander around, with just enough intelligence in the pathfinding to not fall off the edge. When the player presses z, the npc should start following the player, and when they press it again, the npc should stop following the player. The npc should only run if the player is running and she is following the player. The npc should have the same walk, run, and jump animations that the player has. Make sure that the dress moves properly with the running and jumping so that the legs don't clip through
+
+please make it so that the npc's standing position has her hands by her side
+
+please make the follow distance for follow mode closer
+
+what was that weird jumping with their feet thing the models did in your automatic test?
+
+please run the game so I can test things myself
+
+when it first runs, before the characters start walking they do a thing where their legs bend backwards then they go back to normal and it keeps repeating that until they walk, and after that it moves as normal. This is not an intended feature. Please fix this
+
+please run the game again so I can test it
+
+The glitch is gone. Please make an animation for the player indicating the player giving an order to follow them, which will be used when the player presses z on the times that that makes the npcs follow them. Please also make an animation for the player signaling with a hand sign indicating that the npcs don't have to follow anymore which will be played at other z presses
+
+can you make the hand face out instead of in for the "you can stay" gesture? Also please make the mouth open in the "follow me" animation, to indicate speech. Play a sound to go with it. Not actual speech, but garbled unintelligible vocalizations. The tone should indicate a commander giving orders
+
+please run the game so I can test the mechanic
+
+the voice track has a delay, please make the sound start immediately upon the button being pressed at the same moment that the animation starts. Also please reduce the volume a little
+
+please run the game so I can test it myself
+
+please commit the changes

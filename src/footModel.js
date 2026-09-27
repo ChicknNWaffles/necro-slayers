@@ -93,30 +93,49 @@ function footGeometry(sign, leg) {
   return geometry;
 }
 
-// The foot in the shoe colour, with the bottom of the trouser leg in the
-// pants colour above HEM_Y (and a thin hem line between them).
-function footMaterial(material, pantsColor, lineColor) {
+// Shoes: the foot in the shoe colour, with the bottom of the trouser leg in
+// the pants colour above HEM_Y (and a thin hem line between them).
+// Sandals: a bare foot in `skinColor` (and a bare leg above it), with a sole
+// and straps in the shoe colour -- across the toes, over the instep, round
+// the ankle, and up the back of the heel -- each edged with a thin line.
+function footMaterial(material, { pantsColor, skinColor, lineColor, sandals }) {
   const uniforms = {
-    pantsColor: { value: new THREE.Color(pantsColor) },
+    pantsColor: { value: new THREE.Color(sandals ? skinColor : pantsColor) },
+    footSkinColor: { value: new THREE.Color(skinColor ?? '#ffffff') },
     footLineColor: { value: new THREE.Color(lineColor) },
   };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = `varying float vFootY;
+    shader.vertexShader = `varying vec3 vFootPos;
 ${shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-  vFootY = position.y;`)}`;
+  vFootPos = position;`)}`;
     shader.fragmentShader = `uniform vec3 pantsColor;
+uniform vec3 footSkinColor;
 uniform vec3 footLineColor;
-varying float vFootY;
+varying vec3 vFootPos;
+// Coverage in pixels from a signed value (positive = covered), and its edge line.
+float cover(float v) { return smoothstep(-0.5, 0.5, v / (fwidth(v) + 1e-6)); }
+float edge(float v) { return 1.0 - smoothstep(1.0, 2.0, abs(v / (fwidth(v) + 1e-6))); }
 ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
   {
-    float h = vFootY - ${HEM_Y.toFixed(4)};
-    float px = h / (fwidth(h) + 1e-6);
-    diffuseColor.rgb = mix(diffuseColor.rgb, pantsColor, smoothstep(-0.5, 0.5, px));
-    diffuseColor.rgb = mix(diffuseColor.rgb, footLineColor, 1.0 - smoothstep(1.0, 2.0, abs(px)));
+    vec3 p = vFootPos;
+    float h = p.y - ${HEM_Y.toFixed(4)};
+${sandals ? `
+    // Each strap as a signed value: positive inside it.
+    float sole = ${(FLOOR_Y + 0.007).toFixed(4)} - p.y;
+    float toes = 0.006 - abs(p.z + 0.118);
+    float instep = 0.007 - abs(p.z + 0.045 + 0.35 * (p.y + 0.02));
+    float ankle = 0.0055 - abs(p.y - 0.004);
+    float heel = min(0.006 - abs(p.x), p.z - 0.02);
+    float strap = max(max(sole, toes), max(max(instep, ankle), heel));
+    diffuseColor.rgb = mix(footSkinColor, diffuseColor.rgb, cover(strap));
+    diffuseColor.rgb = mix(diffuseColor.rgb, footLineColor, edge(strap) * 0.8);
+    diffuseColor.rgb = mix(diffuseColor.rgb, pantsColor, cover(h));` : `
+    diffuseColor.rgb = mix(diffuseColor.rgb, pantsColor, cover(h));
+    diffuseColor.rgb = mix(diffuseColor.rgb, footLineColor, edge(h));`}
   }`)}`;
   };
-  material.customProgramCacheKey = () => 'foot';
+  material.customProgramCacheKey = () => (sandals ? 'foot-sandal' : 'foot');
   return material;
 }
 
@@ -135,7 +154,8 @@ function footOutlineMaterial(lineColor, top, thickness) {
 }
 
 // A finished foot. `sign`: +1 for the right foot, -1 for the left.
-// `skinMaterial` is a toon material in the shoe colour. `leg` describes the
+// `material` is a toon material in the shoe colour; `sandals` shows a bare
+// foot in `skinColor` with sandal straps instead of a shoe. `leg` describes the
 // shin it joins onto:
 //   shin:    the shin's distance function, in shin (knee) coordinates
 //   offsetY: where the ankle is, in shin coordinates
@@ -144,9 +164,9 @@ function footOutlineMaterial(lineColor, top, thickness) {
 //   blend:   how widely the ankle is smoothed into the leg
 //   outline: outline thickness
 //   key:     identifies the shin's shape, for reusing meshes
-export function createFoot({ sign, material, pantsColor, lineColor, leg }) {
+export function createFoot({ sign, material, pantsColor, skinColor, sandals = false, lineColor, leg }) {
   const geometry = footGeometry(sign, leg);
-  const foot = new THREE.Mesh(geometry, footMaterial(material, pantsColor, lineColor));
+  const foot = new THREE.Mesh(geometry, footMaterial(material, { pantsColor, skinColor, lineColor, sandals }));
   foot.castShadow = true;
   foot.add(new THREE.Mesh(geometry, footOutlineMaterial(lineColor, geometry.userData.top, leg.outline)));
   return foot;

@@ -119,12 +119,17 @@ function lashPoint([x, y, out, t], r) {
   return { p: [px, py, pz], t: t * r };
 }
 
+const lashCache = new Map(); // (these are needed for every point sampled round the eyes)
+
 function lashPoints(r, m) {
+  const key = `${r}:${m}`;
+  if (lashCache.has(key)) return lashCache.get(key);
   const points = lashPath(m).map((q) => lashPoint(q, r));
   const end = points[points.length - 1].p;
   if (m < 0.5) for (const [dx, dy, dz, t] of LASH_WING) {
     points.push({ p: [end[0] + dx * r, end[1] + dy * r, end[2] + dz * r], t: t * r });
   }
+  lashCache.set(key, points);
   return points;
 }
 
@@ -268,10 +273,12 @@ export function eyePlacement(eyeSize) {
 
 // --- Colouring --------------------------------------------------------------
 
-// Adds eyebrows and blush to the head's skin material (a toon material).
-export function addFaceColour(material, browColor, R, eyeSize) {
+// Adds eyebrows, blush and freckles to the head's skin material (a toon material).
+// blush, freckles: how strong they are (0 = none, 1 = strongest).
+export function addFaceColour(material, browColor, R, eyeSize, { blush = 0.3, freckles = 0 } = {}) {
   const uniforms = {
     browColor: { value: new THREE.Color(browColor) }, headRadius: { value: R }, eyeSize: { value: eyeSize },
+    blushAmount: { value: blush }, freckleAmount: { value: freckles },
   };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -286,6 +293,8 @@ ${shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex
     shader.fragmentShader = `uniform vec3 browColor;
 uniform float headRadius;
 uniform float eyeSize;
+uniform float blushAmount;
+uniform float freckleAmount;
 varying float vLash;
 varying vec3 vHeadPos;
 varying vec3 vHeadNormal;
@@ -296,7 +305,19 @@ ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fr
     float facing = -normalize(vHeadNormal).z; // 1 on the front of the face
     // Blush on the cheeks.
     float blush = exp(-(pow((ax - 0.42) / 0.14, 2.0) + pow((p.y + 0.33) / 0.09, 2.0))) * step(0.3, facing);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.55, 0.6), blush * 0.3);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.55, 0.6), blush * blushAmount);
+    // Freckles: small, uneven dots scattered over the nose and cheeks, one
+    // (or none) in each cell of a grid, fading out towards the edges.
+    if (freckleAmount > 0.0) {
+      vec2 q = p.xy * 30.0;
+      vec2 cell = floor(q);
+      vec2 rnd = fract(sin(vec2(dot(cell, vec2(127.1, 311.7)), dot(cell, vec2(269.5, 183.3)))) * 43758.5453);
+      float size = 0.14 + 0.14 * fract(rnd.x * 7.13);
+      float dotShape = 1.0 - smoothstep(size * 0.7, size, length(q - cell - 0.2 - 0.6 * rnd));
+      float area = exp(-(pow(p.x / 0.5, 2.0) + pow((p.y + 0.3) / 0.14, 2.0))) * step(0.45, facing);
+      float freckle = dotShape * step(1.0 - freckleAmount * area * 1.6, fract(rnd.y * 3.7));
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 0.55, 0.42), freckle * 0.75);
+    }
     // Eyebrows: thin arcs above the eyes, thinning towards the outer ends.
     float t = (ax - ${EYE.x.toFixed(3)}) / 0.24;
     float browY = ${(EYE.y + 0.31).toFixed(3)} + 0.05 * (1.0 - t * t) - 0.02 * t;
@@ -320,7 +341,7 @@ export function eyeMaterial(material, eyeColor, sign) {
   const uniforms = {
     irisColor: { value: iris },
     irisDark: { value: iris.clone().multiplyScalar(0.4) },
-    irisLight: { value: iris.clone().lerp(new THREE.Color('#ffffff'), 0.35) },
+    irisLight: { value: iris.clone().lerp(new THREE.Color('#ffffff'), 0.18) }, // (only a little lighter, so the colour stays rich)
     // The iris looks mostly along the eye opening, turned partway forwards.
     irisCentreX: { value: -sign * Math.sin(EYE.yaw * 0.35) },
     eyeWiden: { value: EYE.widen },

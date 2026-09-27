@@ -68,6 +68,32 @@ export class GameRenderer {
     this.scene.add(this.player);
   }
 
+  // A non-player character. Returns the NPC's model, which the game passes
+  // back to updateNpc and animateNpc.
+  // yaw: the direction they face (same convention as the player).
+  // pose: how they stand when still (see characterModel.js).
+  addNpc({ appearance, position, yaw, pose }) {
+    const model = new CharacterModel(appearance, { pose });
+    this.scene.add(model.root);
+    this.updateNpc(model, position, yaw);
+    return model;
+  }
+
+  updateNpc(model, position, yaw) {
+    model.root.position.set(position.x, position.y, position.z);
+    model.root.rotation.y = yaw;
+  }
+
+  // Play a gesture on the player's model (see characterAnimation.js).
+  playerGesture(name) {
+    this.playerModel.gesture(name);
+  }
+
+  // Animate an NPC's body, like animatePlayer.
+  animateNpc(model, state, dt) {
+    model.animate(state, dt);
+  }
+
   // Redraw the player with a new appearance (e.g. from a character creator).
   setPlayerAppearance(appearance) {
     this.playerModel.setAppearance(appearance);

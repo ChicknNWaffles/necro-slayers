@@ -1,3 +1,5 @@
+import { COMMAND_CALL, mouthOpening } from './voice.js';
+
 // Character animation: procedural walk and run cycles, played on the
 // character's skeleton (see characterModel.js). Part of the renderer.
 //
@@ -12,9 +14,6 @@ const STRIDE = { walk: 5.4, run: 8.8 };
 const BLEND_RATE = 8; // how quickly the character eases between standing, walking and running
 const JUMP_BLEND_RATE = 14; // how quickly the jump pose comes in and out
 const LANDING_TIME = 0.25;  // seconds the landing crouch lasts
-
-// Each shoulder's sideways angle in the standing pose (the jump lifts the arms out from it).
-const standingSpread = new WeakMap();
 
 // Joint angles in radians. Positive hip/shoulder swing moves the limb forwards;
 // knees bend backwards (negative), elbows bend forwards (positive).
@@ -35,6 +34,47 @@ const POSES = {
   },
 };
 
+// Gestures: short one-off movements of the right arm (and head), played over
+// whatever else the character is doing. Keyframes are [time (seconds),
+// shoulder [x, y, z], elbow [x, y, z], head [x, y]] -- absolute rotations of
+// the right side (x swings the arm forwards/up; z lifts it out to the side;
+// the elbow's x bends it, its y turns the forearm). The gesture eases in from
+// and back out to the arm's normal movement. A gesture with `speech` (see
+// voice.js) also moves the mouth in time with it.
+const GESTURES = {
+  // "Follow me!": the arm swings up and sweeps forwards, pointing the way,
+  // twice, while the head glances back towards whoever is being called and
+  // the character calls out the order.
+  follow: {
+    duration: 1.4,
+    speech: COMMAND_CALL,
+    keys: [
+      [0.0, [2.6, 0, 0.3], [0.6, 0, 0], [0, 0]],
+      [0.28, [2.6, 0, 0.3], [0.6, 0, 0], [-0.05, 0.35]],
+      [0.58, [1.45, 0, 0.12], [0.1, 0, 0], [0, 0.15]],
+      [0.8, [2.4, 0, 0.28], [0.7, 0, 0], [-0.05, 0.35]],
+      [1.1, [1.45, 0, 0.12], [0.1, 0, 0], [0, 0]],
+      [1.4, [1.45, 0, 0.12], [0.1, 0, 0], [0, 0]],
+    ],
+  },
+  // "You can stay": the hand comes up, palm facing out (away from the
+  // body), and waves gently from side to side, with a small shake of the head.
+  dismiss: {
+    duration: 1.5,
+    keys: [
+      // (The upper arm turning about its length swings the raised forearm like a wiper.)
+      [0.0, [0.9, -0.1, 0.45], [1.5, 1.3, 0], [0, 0]],
+      [0.3, [0.9, -0.1, 0.45], [1.5, 1.3, 0], [0, 0]],
+      [0.5, [0.9, 0.15, 0.45], [1.5, 1.3, 0], [0, 0.12]],
+      [0.7, [0.9, -0.35, 0.45], [1.5, 1.3, 0], [0, -0.12]],
+      [0.9, [0.9, 0.15, 0.45], [1.5, 1.3, 0], [0, 0.1]],
+      [1.1, [0.9, -0.3, 0.45], [1.5, 1.3, 0], [0, -0.05]],
+      [1.5, [0.9, -0.1, 0.45], [1.5, 1.3, 0], [0, 0]],
+    ],
+  },
+};
+const GESTURE_EASE = { in: 0.25, out: 0.3 }; // seconds to blend into and out of a gesture
+
 export class CharacterAnimator {
   constructor() {
     this.phase = 0;
@@ -46,7 +86,10 @@ export class CharacterAnimator {
 
   // state: { speed (units per second, 0 when still), running, backward, onGround,
   //          verticalSpeed (+1 at the start of a jump, negative when falling) }
-  update(joints, { speed, running, backward, onGround, verticalSpeed = 0 }, dt, height = 1) {
+  // pose: the arms' rotations [x, y, z] when standing still ('rest', e.g. hands
+  // folded) and when moving ('moving', hanging at the sides), by joint name.
+  // The cycles are played on top of a blend between them.
+  update(joints, { speed, running, backward, onGround, verticalSpeed = 0 }, dt, height = 1, pose = null) {
     const moving = speed > 0.1 && onGround;
     const target = {
       walk: moving && !running ? 1 : 0,
@@ -64,6 +107,15 @@ export class CharacterAnimator {
     // Mix the cycles by their weights.
     const mix = (fn) => w * fn(POSES.walk, false) + r * fn(POSES.run, true) + b * fn(POSES.runBack, true);
 
+    // The arms leave their resting pose while moving or in the air.
+    this.moving = Math.min(w + r + b + this.air, 1);
+    if (pose) {
+      for (const [name, rest] of Object.entries(pose.rest)) {
+        const moving = pose.moving[name];
+        joints[name].rotation.set(...rest.map((v, k) => v + (moving[k] - v) * this.moving));
+      }
+    }
+
     // (The ankles aren't rotated: the feet move rigidly with the shins, so they
     // stay joined to the legs.)
     for (const [side, offset] of [['left', 0], ['right', Math.PI]]) {
@@ -72,8 +124,8 @@ export class CharacterAnimator {
       joints[`${side}Hip`].rotation.x = mix((P) => P.hipSwing * Math.sin(p) + (P.hipForward ?? 0));
       joints[`${side}Knee`].rotation.x = -mix((P) => P.kneeBase + P.kneeBend * forwardSwing ** 1.5);
       // Arms swing opposite to the leg on the same side.
-      joints[`${side}Shoulder`].rotation.x = -mix((P) => P.shoulderSwing * Math.sin(p) + (P.shoulderBack ?? 0));
-      joints[`${side}Elbow`].rotation.x = mix((P) => P.elbowBase + P.elbowSwing * Math.max(-Math.sin(p), 0));
+      joints[`${side}Shoulder`].rotation.x += -mix((P) => P.shoulderSwing * Math.sin(p) + (P.shoulderBack ?? 0));
+      joints[`${side}Elbow`].rotation.x += mix((P) => P.elbowBase + P.elbowSwing * Math.max(-Math.sin(p), 0));
     }
 
     // The body bobs twice per cycle, leans, and sways slightly side to side.
@@ -86,6 +138,40 @@ export class CharacterAnimator {
     joints.head.rotation.y = mix((P) => P.look ?? 0); // looking back over the shoulder
 
     this.jump(joints, { onGround, verticalSpeed }, dt);
+    this.playGesture(joints, dt);
+  }
+
+  // Start a gesture (see GESTURES), replacing any that is playing.
+  gesture(name) {
+    if (GESTURES[name]) this.current = { gesture: GESTURES[name], time: 0 };
+  }
+
+  playGesture(joints, dt) {
+    this.mouthOpen = 0; // (how open the mouth is, 0-1)
+    if (!this.current) return;
+    const { gesture } = this.current;
+    const t = (this.current.time += dt);
+    if (t >= gesture.duration) {
+      this.current = null;
+      return;
+    }
+    if (gesture.speech) this.mouthOpen = mouthOpening(gesture.speech, t);
+    // Where the keyframes put the arm and head now (easing between keys).
+    const { keys } = gesture;
+    let k = 1;
+    while (k < keys.length - 1 && keys[k][0] < t) k++;
+    const [t0, ...a] = keys[k - 1], [t1, ...b] = keys[k];
+    const f = smoothstep(Math.min(Math.max((t - t0) / (t1 - t0), 0), 1));
+    const [shoulder, elbow, head] = a.map((v, i) => v.map((x, j) => x + (b[i][j] - x) * f));
+    // Blended over the normal movement, easing in and out.
+    const w = smoothstep(Math.min(t / GESTURE_EASE.in, 1)) * smoothstep(Math.min((gesture.duration - t) / GESTURE_EASE.out, 1));
+    const blend = (rotation, [x, y, z]) => rotation.set(
+      rotation.x + (x - rotation.x) * w, rotation.y + (y - rotation.y) * w, rotation.z + (z - rotation.z) * w,
+    );
+    blend(joints.rightShoulder.rotation, shoulder);
+    blend(joints.rightElbow.rotation, elbow);
+    joints.head.rotation.x += head[0] * w;
+    joints.head.rotation.y += head[1] * w;
   }
 
   // Jumping: blended in while airborne, on top of the cycles above (which fade
@@ -110,13 +196,15 @@ export class CharacterAnimator {
     for (const [side, sign] of [['left', -1], ['right', 1]]) {
       // Arms lift out to the sides for balance (higher while rising), slightly forward.
       add(`${side}Shoulder`, 'x', a * (0.1 + 0.3 * tuck));
-      const shoulder = joints[`${side}Shoulder`];
-      if (!standingSpread.has(shoulder)) standingSpread.set(shoulder, shoulder.rotation.z);
-      shoulder.rotation.z = standingSpread.get(shoulder) + sign * a * (0.35 + 0.45 * tuck);
+      add(`${side}Shoulder`, 'z', sign * a * (0.35 + 0.45 * tuck));
       add(`${side}Elbow`, 'x', a * 0.5);
     }
     joints.root.position.y += -l * 0.07;
     joints.root.rotation.x += -a * 0.05 - l * 0.12;
     joints.head.rotation.x += a * 0.03 + l * 0.08;
   }
+}
+
+function smoothstep(t) {
+  return t * t * (3 - 2 * t);
 }

@@ -16,10 +16,14 @@ export const APPEARANCE_OPTIONS = {
   eyeSize:    { type: 'range',  label: 'Eye size',   min: 0.8,  max: 1.25, step: 0.01, default: 1 },
   skinColor:  { type: 'color',  label: 'Skin',       default: '#f6d9c6' },
   eyeColor:   { type: 'color',  label: 'Eyes',       default: '#3f7fd6' },
-  hairStyle:  { type: 'choice', label: 'Hair style', choices: ['short', 'long', 'ponytail', 'twintails', 'none'], default: 'short' },
+  blush:      { type: 'range',  label: 'Blush',      min: 0, max: 1, step: 0.01, default: 0.3 },
+  freckles:   { type: 'range',  label: 'Freckles',   min: 0, max: 1, step: 0.01, default: 0 },
+  hairStyle:  { type: 'choice', label: 'Hair style', choices: ['short', 'long', 'ponytail', 'twintails', 'braid', 'none'], default: 'short' },
   hairColor:  { type: 'color',  label: 'Hair',       default: '#4a3328' },
-  shirtColor: { type: 'color',  label: 'Shirt',      default: '#5b7fd6' },
+  outfit:     { type: 'choice', label: 'Outfit',     choices: ['casual', 'dress'], default: 'casual' },
+  shirtColor: { type: 'color',  label: 'Top / dress', default: '#5b7fd6' },
   pantsColor: { type: 'color',  label: 'Pants',      default: '#2d3142' },
+  footwear:   { type: 'choice', label: 'Footwear',   choices: ['shoes', 'sandals'], default: 'shoes' },
   shoeColor:  { type: 'color',  label: 'Shoes',      default: '#3a2b26' },
 };
 
