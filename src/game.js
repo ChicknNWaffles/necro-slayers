@@ -5,6 +5,7 @@ import { createAppearance } from './characterAppearance.js';
 import { playVoice, startAudio } from './sound.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
+import { Hud } from './hud.js';
 
 // --- World ---------------------------------------------------------------
 
@@ -39,6 +40,9 @@ const player = {
   jumpBuffered: false,    // jump was pressed just before landing
   strafeTurn: 0,          // extra body rotation while moving sideways (visual only)
   appearance: createAppearance(), // how the character looks (see characterAppearance.js)
+  name: 'You',
+  maxHealth: 100,
+  health: 100,
 };
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
@@ -51,11 +55,17 @@ export function setPlayerAppearance(values) {
 // --- NPCs ----------------------------------------------------------------
 
 // Characters in the world. They use the same character models as the player
-// (see characterAppearance.js), but their looks are fixed. They wander around
-// the floor; Z makes the friendly ones follow the player (and Z again stops them).
-// radius: how close the player can get (the player can't walk through them).
-// follows: whether they answer the player's call to follow.
-// wanderSpeed: how fast they wander (units per second).
+// (see characterAppearance.js), but their looks are fixed.
+//   radius: how close the player can get (the player can't walk through them).
+//   follows: whether they answer the player's call to follow -- the ones who
+//            do are in the player's party.
+//   wanderSpeed, chaseSpeed: how fast they wander, and chase in combat (units per second).
+//   maxHealth: their health when unhurt.
+//
+// Out of combat, party members wander near the player (or follow them: Z
+// toggles it), and enemies wander freely. In combat mode (see updateCombat),
+// party members who were following keep in formation round the player, the
+// others go after the enemies, and enemies go after the party.
 const NPCS = [
   {
     // Evalyn, a cleric: a pale, freckled, red-haired woman in a flowing white
@@ -81,6 +91,7 @@ const NPCS = [
     yaw: Math.atan2(-6, -7), // facing the middle of the floor (where the player starts)
     radius: 0.5,
     follows: true,
+    maxHealth: 80,
   },
   {
     // A zombie: the first enemy (a random character, see enemies.js). It
@@ -94,9 +105,12 @@ const NPCS = [
     radius: 0.45,
     follows: false,
     wanderSpeed: 1.2,
+    chaseSpeed: 1.8,
+    maxHealth: 60,
   },
 ].map((npc) => ({
   ...npc,
+  health: npc.maxHealth,
   position: { ...npc.position },
   velocityY: 0,
   onGround: true,
@@ -117,6 +131,7 @@ const NPC_MOVE = {
   followSlack: 0.5,     // how much further the player can get before they set off again
   jumpDelay: 0.15,      // they jump this long after the player
   turnRate: 10,         // how quickly they turn to face where they're going
+  partyRange: 7,        // party members wander within this distance of the player
 };
 
 // Z: every NPC starts (or stops) following the player, who signals it with
@@ -152,37 +167,112 @@ function keepOnFloor(pos) {
   pos.z = Math.min(Math.max(pos.z, -maxZ), maxZ);
 }
 
-// A random spot on the floor within reach, away from the edges.
-function pickWanderTarget(pos) {
+// A random spot on the floor to wander to, away from the edges. Party members
+// stay near the player (so they don't wander off into a fight on their own);
+// anyone else wanders anywhere within reach of where they are.
+function pickWanderTarget(npc) {
+  const centre = npc.follows ? player.position : npc.position;
+  const range = npc.follows ? NPC_MOVE.partyRange : NPC_MOVE.wanderRange;
   const angle = Math.random() * Math.PI * 2;
-  const distance = NPC_MOVE.wanderRange * (0.3 + 0.7 * Math.random());
-  const target = { x: pos.x + Math.sin(angle) * distance, z: pos.z + Math.cos(angle) * distance };
+  const distance = range * (npc.follows ? Math.sqrt(Math.random()) : 0.3 + 0.7 * Math.random());
+  const target = { x: centre.x + Math.sin(angle) * distance, z: centre.z + Math.cos(angle) * distance };
   keepOnFloor(target);
   return target;
+}
+
+function distanceBetween(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+// What an NPC does this frame: { goal (where to walk to, or none), speed,
+// running, face (what to turn towards when standing still) }.
+function chooseMove(npc, dt) {
+  if (npc.role === 'enemy') {
+    // Enemies go after the nearest party member in combat, and wander otherwise.
+    if (combat.active) return approach(npc, nearest(npc, partyMembers()), npc.chaseSpeed ?? npc.wanderSpeed);
+    return wander(npc, dt);
+  }
+  if (combat.active) {
+    // In combat, followers keep in formation; the rest go after the enemies.
+    return npc.following ? keepFormation(npc) : approach(npc, nearest(npc, livingEnemies()));
+  }
+  return npc.following ? follow(npc) : wander(npc, dt);
+}
+
+// Following the player: set off when they get far enough away; stop once close behind them.
+function follow(npc) {
+  const distance = distanceBetween(npc.position, player.position);
+  const wasMoving = npc.moveSpeed > 0;
+  if (distance <= NPC_MOVE.followDistance + (wasMoving ? 0 : NPC_MOVE.followSlack)) return { face: player.position };
+  // Running only while the player is.
+  const running = capsLockOn && player.moveSpeed > 0;
+  return { goal: player.position, speed: running ? PLAYER.runSpeed : PLAYER.speed, running };
+}
+
+// Wandering: walk to a spot, stand a while, then pick another.
+function wander(npc, dt) {
+  if (npc.waitTime > 0) {
+    npc.waitTime -= dt;
+    return {};
+  }
+  // (A party member's spot is dropped if the player has moved far from it.)
+  if (npc.target && npc.follows && distanceBetween(npc.target, player.position) > NPC_MOVE.partyRange * 1.4) npc.target = null;
+  npc.target ??= pickWanderTarget(npc);
+  if (distanceBetween(npc.position, npc.target) < 0.2) {
+    npc.target = null;
+    npc.waitTime = NPC_MOVE.wait[0] + Math.random() * (NPC_MOVE.wait[1] - NPC_MOVE.wait[0]);
+    return {};
+  }
+  return { goal: npc.target, speed: npc.wanderSpeed ?? NPC_MOVE.wanderSpeed };
+}
+
+// Going after someone: up to within reach of them, running when they're far off.
+function approach(npc, target, speed = null) {
+  if (!target) return {};
+  const distance = distanceBetween(npc.position, target.position);
+  const wasMoving = npc.moveSpeed > 0;
+  if (distance <= COMBAT.reach + (wasMoving ? 0 : 0.3)) return { face: target.position };
+  const running = speed === null && distance > COMBAT.runDistance;
+  const s = speed ?? (running ? PLAYER.runSpeed : PLAYER.speed);
+  // (Heading for the point at arm's length from them, rather than their middle.)
+  const k = (distance - COMBAT.reach) / distance;
+  const goal = {
+    x: npc.position.x + (target.position.x - npc.position.x) * k,
+    z: npc.position.z + (target.position.z - npc.position.z) * k,
+  };
+  return { goal, speed: s, running, face: target.position };
+}
+
+// In formation: each follower has a place beside and behind the player,
+// turning with them, and keeps to it (running to catch up), facing the enemy.
+function keepFormation(npc) {
+  const slot = COMBAT.formation[partyMembers().indexOf(npc) - 1] ?? COMBAT.formation[0];
+  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+  // (The player's right is (cos, -sin) and forward is (-sin, -cos).)
+  const goal = {
+    x: player.position.x + cos * slot.right + sin * slot.back,
+    z: player.position.z - sin * slot.right + cos * slot.back,
+  };
+  const face = nearest(npc, livingEnemies())?.position;
+  const distance = distanceBetween(npc.position, goal);
+  if (distance < 0.25) return { face };
+  const running = distance > COMBAT.runDistance || (capsLockOn && player.moveSpeed > 0);
+  return { goal, speed: running ? PLAYER.runSpeed : PLAYER.speed, running, face };
+}
+
+function nearest(npc, others) {
+  let best = null, bestDistance = Infinity;
+  for (const other of others) {
+    const d = distanceBetween(npc.position, other.position);
+    if (d < bestDistance) { best = other; bestDistance = d; }
+  }
+  return best;
 }
 
 function updateNpc(npc, dt) {
   const pos = npc.position;
   const start = { x: pos.x, z: pos.z };
-  // Where to go, and how fast.
-  let goal = null, speed = 0, running = false;
-  if (npc.following) {
-    const distance = Math.hypot(player.position.x - pos.x, player.position.z - pos.z);
-    // Set off when the player gets far enough away; stop once close behind them.
-    const wasMoving = npc.moveSpeed > 0;
-    if (distance > NPC_MOVE.followDistance + (wasMoving ? 0 : NPC_MOVE.followSlack)) {
-      goal = player.position;
-      // Running only while the player is.
-      running = capsLockOn && player.moveSpeed > 0;
-      speed = running ? PLAYER.runSpeed : PLAYER.speed;
-    }
-  } else if (npc.waitTime > 0) {
-    npc.waitTime -= dt;
-  } else {
-    npc.target ??= pickWanderTarget(pos);
-    goal = npc.target;
-    speed = npc.wanderSpeed ?? NPC_MOVE.wanderSpeed;
-  }
+  const { goal = null, speed = 0, running = false, face = null } = chooseMove(npc, dt);
 
   let faceX = 0, faceZ = 0;
   if (goal) {
@@ -194,14 +284,8 @@ function updateNpc(npc, dt) {
       pos.z += (dz / distance) * step;
       faceX = dx; faceZ = dz;
     }
-    // Arrived: stand for a while, then wander somewhere else.
-    if (!npc.following && distance < 0.2) {
-      npc.target = null;
-      npc.waitTime = NPC_MOVE.wait[0] + Math.random() * (NPC_MOVE.wait[1] - NPC_MOVE.wait[0]);
-    }
-  } else if (npc.following) {
-    // Waiting for the player: turn to face them.
-    faceX = player.position.x - pos.x; faceZ = player.position.z - pos.z;
+  } else if (face) {
+    faceX = face.x - pos.x; faceZ = face.z - pos.z;
   }
   keepOnFloor(pos);
   pushAwayFromPlayer(npc);
@@ -212,7 +296,7 @@ function updateNpc(npc, dt) {
   npc.running = running;
   // Wandering but blocked (e.g. the player is standing in the way): give up
   // after a moment and go somewhere else.
-  npc.stuckTime = !npc.following && goal && npc.moveSpeed === 0 ? (npc.stuckTime ?? 0) + dt : 0;
+  npc.stuckTime = npc.target && goal === npc.target && npc.moveSpeed === 0 ? (npc.stuckTime ?? 0) + dt : 0;
   if (npc.stuckTime > 1) npc.target = null;
 
   // Turn smoothly towards where they're going (yaw 0 faces -Z).
@@ -234,6 +318,61 @@ function updateNpc(npc, dt) {
   if (npc.onGround) {
     pos.y = FLOOR.y;
     npc.velocityY = 0;
+  }
+}
+
+// NPCs don't walk through each other: any two that overlap are pushed apart.
+function separateNpcs() {
+  for (let i = 0; i < NPCS.length; i++) {
+    for (let j = i + 1; j < NPCS.length; j++) {
+      const a = NPCS[i].position, b = NPCS[j].position;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const distance = Math.hypot(dx, dz);
+      const overlap = NPCS[i].radius + NPCS[j].radius - distance;
+      if (overlap > 0 && distance > 1e-6) {
+        a.x -= (dx / distance) * overlap / 2; a.z -= (dz / distance) * overlap / 2;
+        b.x += (dx / distance) * overlap / 2; b.z += (dz / distance) * overlap / 2;
+      }
+    }
+  }
+}
+
+// --- Combat mode -----------------------------------------------------------
+
+// Combat mode starts when anyone in the party comes within range of an enemy,
+// and ends once the whole party is well clear of every enemy (or they're all dead).
+const COMBAT = {
+  startRange: 8,      // how close to an enemy starts combat
+  endRange: 14,       // how far from every enemy the party must be for it to end
+  reach: 1.3,         // how close fighters get to their target
+  runDistance: 4,     // further than this, fighters run to their target (or place in formation)
+  // Followers' places round the player (units to the player's right, and behind).
+  formation: [{ right: 1.4, back: 1.2 }, { right: -1.4, back: 1.2 }, { right: 0, back: 2.2 }],
+};
+
+const combat = { active: false };
+
+function partyMembers() {
+  return [player, ...NPCS.filter((npc) => npc.follows)];
+}
+
+function livingEnemies() {
+  return NPCS.filter((npc) => npc.role === 'enemy' && npc.health > 0);
+}
+
+function updateCombat() {
+  let closest = Infinity;
+  for (const member of partyMembers()) {
+    for (const enemy of livingEnemies()) closest = Math.min(closest, distanceBetween(member.position, enemy.position));
+  }
+  const active = combat.active ? closest <= COMBAT.endRange : closest < COMBAT.startRange;
+  if (active !== combat.active) {
+    combat.active = active;
+    // Everyone drops what they were doing.
+    for (const npc of NPCS) {
+      npc.target = null;
+      npc.waitTime = 0;
+    }
   }
 }
 
@@ -479,6 +618,24 @@ renderer.addFloor(FLOOR);
 renderer.addPlayer(player.appearance);
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
 
+// The HUD (see hud.js): the party's health bars, with their portraits, and
+// the enemies' health bars.
+const hud = new Hud(document.body);
+hud.setParty(partyMembers().map((member) => ({
+  id: member, name: member.name, portrait: renderer.portrait(member.view),
+})));
+hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
+
+function updateHud() {
+  hud.update({
+    combat: combat.active,
+    party: partyMembers().map((member) => ({ id: member, health: member.health, maxHealth: member.maxHealth })),
+    enemies: NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({
+      id: npc, health: npc.health, maxHealth: npc.maxHealth, screen: renderer.overHead(npc.view),
+    })),
+  });
+}
+
 // Mouse look: the mouse is captured automatically when the game opens.
 // Esc or switching windows releases it; clicking the game captures it again.
 const MOUSE_CAPTURE_RETRY_MS = 250;
@@ -539,6 +696,7 @@ function frame(now) {
     onGround: player.onGround,
     verticalSpeed: player.velocityY / PLAYER.jumpSpeed, // +1 at take-off, falling below 0
   }, dt);
+  updateCombat();
   for (const npc of NPCS) {
     updateNpc(npc, dt);
     renderer.updateNpc(npc.view, npc.position, npc.yaw);
@@ -550,7 +708,9 @@ function frame(now) {
       verticalSpeed: npc.velocityY / PLAYER.jumpSpeed,
     }, dt);
   }
+  separateNpcs();
   renderer.updateCamera({ yaw: getCameraYaw(), pitch: camera.pitch });
+  updateHud();
   renderer.render();
 
   requestAnimationFrame(frame);

@@ -267,3 +267,7 @@ now lets make a basic enemy so we can begin the combat system. This is a zombie.
 please ensure that the rips in the zombie's clothing never goes through the crotch area, as it did do that in one of your example renders. Also please remove the highlight from the zombie's eyes, and make their upper eyelids droopy as though they aren't all the way open
 
 please commit the changes
+
+now, please add a gamestate called "combat mode". Combat mode is initiated by the player and/or the party (the party is the player and the npcs who are capable of following, for now that's just the player and Evalyn but we will add another later) are within range of an enemy. Please restrict wandering party member's pathfinding so that they stay within the same rough area that the player is in, reducing the likelihood that they wander into combat without the player. When in combat mode, health bars should show up in the upper lefthand corner of the screen for each party member, labeled by a circle to the left of the health bar that has the corresponding character's head shot (facing slightly off center towards the right). Make the left side of the health bar attached to this circle. The enemy's health bars will be floating above their heads, no need for a face label on that. When in combat mode, follow will be replaced with the party members being in a formation with the player, and wander mode will be replaced with them freely pursuing the enemy to fight it
+
+please commit the changes

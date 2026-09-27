@@ -4,6 +4,8 @@
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { CharacterModel } from './characterModel.js';
 
+const PORTRAIT_BACKGROUND = '#d9e4ee'; // (matches the portrait frames in style.css)
+
 // Third-person camera: circles a point at the player's chest, `distance` away.
 const CAMERA = { distance: 4.5, pivotHeight: 1.5 };
 const CAMERA_MIN_HEIGHT = 0.3; // keep the camera above the floor
@@ -124,6 +126,69 @@ export class GameRenderer {
       p.z + Math.cos(yaw) * horizontal,
     );
     this.camera.lookAt(p.x, p.y + pivotHeight, p.z);
+  }
+
+  // --- For the HUD (see hud.js) ------------------------------------------
+
+  // A headshot of a character (the player's model if none is given), as a
+  // square canvas: their head and shoulders on a plain background, turned
+  // slightly to look off to the right of the picture.
+  portrait(model = this.playerModel, size = 128) {
+    const head = new THREE.Vector3();
+    model.joints.head.getWorldPosition(head);
+    head.y += 0.1 * model.height; // (the middle of the face, above the neck joint)
+    // The camera sits in front of the face, a little round to the character's
+    // left, so they appear turned towards the picture's right.
+    const yaw = model.root.getWorldQuaternion(new THREE.Quaternion());
+    const toCamera = new THREE.Vector3(-Math.sin(-0.45), 0.08, -Math.cos(-0.45)).applyQuaternion(yaw).normalize();
+    const camera = new THREE.PerspectiveCamera(24, 1, 0.05, 10);
+    camera.position.copy(head).addScaledVector(toCamera, 0.95 * model.height);
+    camera.lookAt(head.x, head.y - 0.04 * model.height, head.z);
+
+    // Draw just this character, on a plain background.
+    const owner = model.root.parent === this.scene ? model.root : model.root.parent; // (the player's model is in a group)
+    const hidden = this.scene.children.filter((c) => c !== owner && !c.isLight && c.visible);
+    for (const c of hidden) c.visible = false;
+    const { background, fog } = this.scene;
+    this.scene.background = new THREE.Color(PORTRAIT_BACKGROUND);
+    this.scene.fog = null;
+    const target = new THREE.WebGLRenderTarget(size, size, { samples: 4 });
+    target.texture.colorSpace = THREE.SRGBColorSpace; // (colours as on screen)
+    this.renderer.setRenderTarget(target);
+    this.renderer.render(this.scene, camera);
+    this.renderer.setRenderTarget(null);
+    this.scene.background = background;
+    this.scene.fog = fog;
+    for (const c of hidden) c.visible = true;
+
+    // Copy it into a canvas (the render comes out upside down).
+    const pixels = new Uint8Array(size * size * 4);
+    this.renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+    target.dispose();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext('2d');
+    const image = context.createImageData(size, size);
+    for (let row = 0; row < size; row++) {
+      image.data.set(pixels.subarray((size - 1 - row) * size * 4, (size - row) * size * 4), row * size * 4);
+    }
+    context.putImageData(image, 0, 0);
+    return canvas;
+  }
+
+  // Where just above a character's head is on screen, in pixels (for a
+  // health bar floating over it). visible: false if it's behind the camera.
+  overHead(model) {
+    const point = new THREE.Vector3();
+    model.root.getWorldPosition(point);
+    point.y += 2.25 * model.height;
+    this.camera.updateMatrixWorld();
+    point.project(this.camera);
+    return {
+      x: (point.x + 1) / 2 * window.innerWidth,
+      y: (1 - point.y) / 2 * window.innerHeight,
+      visible: point.z < 1 && Math.abs(point.x) < 1.2 && Math.abs(point.y) < 1.2,
+    };
   }
 
   resize() {
