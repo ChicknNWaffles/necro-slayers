@@ -109,6 +109,7 @@ function buildBody(a) {
     hair:  toon(a.hairColor),
   };
   const w = a.build; // widens the torso, limbs and stance
+  const m = a.bodyType === 'male' ? 1 : 0; // 0 female, 1 male (see SEX_SHAPE)
 
   // Skeleton, in the sculpting pose.
   const bone = (parent, x, y, z) => {
@@ -119,12 +120,12 @@ function buildBody(a) {
   };
   const root = bone(null, 0, 0, 0);
   const joints = { root, head: bone(root, 0, BODY.neckTop, -0.025) }; // head forward, over the leaning neck
-  const parts = [{ name: 'torso', bone: root, ...torso(w) }];
+  const parts = [{ name: 'torso', bone: root, ...torso(w, m) }];
   for (const side of ['left', 'right']) {
     const sign = side === 'left' ? -1 : 1; // the character's left is -X
-    const shoulder = bone(root, sign * BODY.shoulderSpread * w, BODY.shoulderHeight, 0);
+    const shoulder = bone(root, sign * BODY.shoulderSpread * w * sexMix(m, 'shoulders'), BODY.shoulderHeight, 0);
     const elbow = bone(shoulder, 0, -BODY.upperArmLength, 0);
-    const hip = bone(root, sign * BODY.hipSpread * w, BODY.hipHeight, 0);
+    const hip = bone(root, sign * BODY.hipSpread * w * sexMix(m, 'hipSpread'), BODY.hipHeight, 0);
     const knee = bone(hip, 0, -BODY.thighLength, 0);
     const ankle = bone(knee, 0, -BODY.shinLength, 0);
     shoulder.rotation.z = sign * SCULPT_POSE.shoulder;
@@ -134,7 +135,7 @@ function buildBody(a) {
       [`${side}Hip`]: hip, [`${side}Knee`]: knee, [`${side}Ankle`]: ankle,
     });
     parts.push(
-      { name: 'upperArm', bone: shoulder, blend: BLEND.shoulder, ...upperArm(w, sign) },
+      { name: 'upperArm', bone: shoulder, blend: BLEND.shoulder, ...upperArm(w * sexMix(m, 'arms'), sign) },
       { name: 'forearm', bone: elbow, blend: BLEND.elbow, ...forearm(w, sign) },
       { name: 'thigh', bone: hip, blend: BLEND.hip, ...thigh(w, sign) },
       { name: 'shin', bone: knee, blend: BLEND.knee, ...shin(w, sign) },
@@ -170,7 +171,7 @@ function buildBody(a) {
 
   // Sculpting takes about a second, and only the build changes the sculpt, so
   // recent sculpts are kept and reused (e.g. while a character creator changes colours).
-  const key = w.toFixed(3);
+  const key = `${w.toFixed(3)}:${m}`;
   let geometry = sculptCache.get(key);
   if (!geometry) {
     geometry = meshFromDistance(bodyDistance, sculptBounds(parts), SCULPT_DETAIL);
@@ -423,12 +424,44 @@ function scaled(keys, w, neckFrom = Infinity) {
   });
 }
 
-function torso(w) {
-  return { shape: torsoShape(w), bumps: torsoMuscles(), range: [0.86, 1.7] };
+// Female and male body shapes: multipliers of the base sculpt's widths
+// (female, male). Female: wider hips, narrower waist, narrower shoulders;
+// male: wider shoulders and chest, narrower hips, a thicker neck.
+const SEX_SHAPE = {
+  hips: [1.06, 0.92],       // torso width around the hips
+  waist: [0.96, 1.04],
+  chest: [0.98, 1.08],
+  shoulders: [0.96, 1.16],  // the trapezius slope, and how far apart the arms are
+  neck: [0.96, 1.1],
+  hipSpread: [1.06, 0.92],  // how far apart the legs are
+  arms: [0.97, 1.06],       // upper arm thickness
+};
+
+function sexMix(m, key) {
+  const [f, male] = SEX_SHAPE[key];
+  return f + (male - f) * m;
 }
 
-function torsoShape(w) {
-  return profile(scaled([
+// Width multiplier for the torso at a given height.
+function torsoSexScale(y, m) {
+  const zones = [[0.86, 'hips'], [1.08, 'hips'], [1.17, 'waist'], [1.33, 'chest'], [1.46, 'shoulders'], [1.54, 'neck']];
+  if (y <= zones[0][0]) return sexMix(m, 'hips');
+  for (let i = 1; i < zones.length; i++) {
+    if (y <= zones[i][0]) {
+      const [y0, k0] = zones[i - 1], [y1, k1] = zones[i];
+      const t = (y - y0) / (y1 - y0);
+      return sexMix(m, k0) * (1 - t) + sexMix(m, k1) * t;
+    }
+  }
+  return sexMix(m, 'neck');
+}
+
+function torso(w, m) {
+  return { shape: torsoShape(w, m), bumps: torsoMuscles(m), range: [0.86, 1.7] };
+}
+
+function torsoShape(w, m) {
+  const keys = scaled([
     // The bottom closes gradually and lower down, between the tops of the
     // thighs, the way fabric fills in there (no hollow underneath the seat).
     [0.86, 0.004, 0.004, 0.02],    // crotch
@@ -449,10 +482,16 @@ function torsoShape(w) {
     [1.56, 0.058, 0.059, 0.012],   // which leans forward as it rises
     [1.62, 0.054, 0.056, 0.004],
     [1.7, 0.054, 0.056, -0.01],    // top of the neck, inside the head
-  ], w, 1.5));
+  ], w, 1.5);
+  // Female / male widths (the chest and neck deepen a little too).
+  return profile(keys.map(([y, rx, rz, cz]) => {
+    const k = torsoSexScale(y, m);
+    const deep = y > 1.2 ? 1 + (k - 1) * 0.5 : 1;
+    return [y, rx * k, rz * deep, cz];
+  }));
 }
 
-function torsoMuscles() {
+function torsoMuscles(sex) {
   const m = [
     // Neck and collarbones.
     blob({ angle: 0, y: 1.48, amp: -0.008, width: 0.014, height: 0.014 }),         // notch between the collarbones
@@ -465,6 +504,20 @@ function torsoMuscles() {
     ridge({ from: [Math.PI, 1.08], to: [Math.PI, 1.38], amp: -0.005, width: 0.012 }), // spine
     blob({ angle: 0, y: 1.135, amp: -0.004, width: 0.008, height: 0.008 }),        // navel
   ];
+  // Breasts (female): two rounded forms on the chest, joined by a fill
+  // between them -- a single smooth shape, as they are when clothed.
+  if (sex < 1) {
+    const f = 1 - sex;
+    m.push(
+      // (Broad, overlapping shapes, so they're rounded rather than pointed.)
+      blob({ angle: -0.42, y: 1.295, amp: 0.02 * f, width: 0.075, height: 0.07 }),
+      blob({ angle: 0.42, y: 1.295, amp: 0.02 * f, width: 0.075, height: 0.07 }),
+      blob({ angle: -0.4, y: 1.285, amp: 0.008 * f, width: 0.05, height: 0.045 }),
+      blob({ angle: 0.4, y: 1.285, amp: 0.008 * f, width: 0.05, height: 0.045 }),
+      blob({ angle: 0, y: 1.29, amp: 0.017 * f, width: 0.06, height: 0.06 }),
+      blob({ angle: 0, y: 1.345, amp: 0.01 * f, width: 0.12, height: 0.05 }), // softening the top edge into the chest
+    );
+  }
   for (const s of [-1, 1]) {
     m.push(
       // Sternocleidomastoid: from behind the ear, diagonally round the neck
@@ -475,7 +528,7 @@ function torsoMuscles() {
       // the shoulder, with a ridge along its top edge...
       // (Mostly on top of the shoulders, so the back of the neck flows smoothly
       // down into the shoulder blades without a hump.)
-      blob({ angle: s * 1.9, y: 1.465, amp: 0.012, width: 0.06, height: 0.04 }),
+      blob({ angle: s * 1.9, y: 1.465, amp: 0.012 + 0.006 * sex, width: 0.06, height: 0.04 }),
       ridge({ from: [s * 2.5, 1.6], to: [s * 1.45, 1.455], amp: 0.007, width: 0.025 }),
       // ...its lower edges, running from the shoulder blades to the middle of the back...
       ridge({ from: [s * 2.2, 1.44], to: [Math.PI, 1.2], amp: 0.005, width: 0.02 }),
@@ -484,7 +537,7 @@ function torsoMuscles() {
       ridge({ from: [s * 0.18, 1.468], to: [s * 1.15, 1.452], amp: 0.006, width: 0.009 }), // collarbone
       blob({ angle: s * 1.45, y: 1.448, amp: 0.004, width: 0.018, height: 0.014 }),       // acromion (bony point on top of the shoulder)
       ridge({ from: [s * 0.95, 1.45], to: [s * 1.2, 1.33], amp: -0.004, width: 0.011 }),  // groove between the deltoid and the pec
-      blob({ angle: s * 0.42, y: 1.335, amp: 0.012, width: 0.055, height: 0.045 }),       // pectoral
+      blob({ angle: s * 0.42, y: 1.335, amp: 0.006 + 0.012 * sex, width: 0.055, height: 0.045 }), // pectoral (stronger on the male)
       // Shoulder blade: a broad plate with a raised inner edge, the bony ridge
       // (scapular spine) running out towards the shoulder, and a point at the bottom.
       // The plate is covered by muscle above it too, so it rises smoothly into the neck.
@@ -631,7 +684,7 @@ function buildHead(head, a, mats) {
   // The sculpted head (see headModel.js), with eyebrows and blush coloured on.
   const brow = new THREE.Color(a.hairColor).multiplyScalar(0.7);
   const skin = addFaceColour(toon(a.skinColor, SKIN_TOON_STEPS), brow, R, a.eyeSize);
-  const headMesh = new THREE.Mesh(headGeometry(a.eyeSize, R), skin);
+  const headMesh = new THREE.Mesh(headGeometry(a.eyeSize, R, a.bodyType === 'male' ? 1 : 0), skin);
   headMesh.castShadow = true;
   // Its own outline, faded out around the eyes (the thin folds of the eyelids
   // would otherwise let it show through as specks).

@@ -47,7 +47,9 @@ function smoothSubtract(a, b, k) {
 
 // Skull and face, before the eyes, nose, mouth and ears (x is mirrored, so
 // only the right side is described).
-function skullDistance(ax, y, z) {
+// m: 0 female (softer: smaller, rounder jaw and chin, fuller cheeks, gentle
+// brow), 1 male (larger, squarer jaw and chin, flatter cheeks, stronger brow).
+function skullDistance(ax, y, z, m) {
   // Cranium: longer front to back than side to side.
   let d = ellipsoid(ax, y, z, [0, 0.06, 0.06], [0.88, 0.96, 1.02]);
   // Face: the mass of the cheeks and upper jaw.
@@ -57,18 +59,20 @@ function skullDistance(ax, y, z) {
   // Cheekbones, and the soft roundness of the cheeks below them.
   // (Cheeks sit low, softening the line of the jaw; the cheekbones flow down into them.)
   const cheekbone = ellipsoid(ax, y, z, [0.49, -0.23, -0.49], [0.24, 0.15, 0.28]);
-  const cheek = ellipsoid(ax, y, z, [0.37, -0.64, -0.48], [0.25, 0.24, 0.24]);
-  d = smoothUnion(d, smoothUnion(cheekbone, cheek, 0.25), 0.24);
+  const full = 1.04 - 0.12 * m;
+  const cheek = ellipsoid(ax, y, z, [0.37, -0.64, -0.48], [0.25 * full, 0.24 * full, 0.24 * full]);
+  d = smoothUnion(d, smoothUnion(cheekbone, cheek, 0.25), 0.24 - 0.06 * m);
   // Jaw: from the jaw angle below the ear forwards and down to the chin,
   // so the jaw has a corner rather than being one long triangle.
   // (The jaw angle sits forward, below the outer corners of the eyes.)
-  d = smoothUnion(d, capsule(ax, y, z, [0.5, -0.66, -0.12], [0.58, -0.36, 0.12], 0.15, 0.15), 0.2); // up to the ear
-  d = smoothUnion(d, capsule(ax, y, z, [0.5, -0.7, -0.14], [0.14, -1.05, -0.61], 0.14, 0.09), 0.22);  // jawline
+  d = smoothUnion(d, capsule(ax, y, z, [0.48 + 0.09 * m, -0.66 - 0.03 * m, -0.12], [0.58 + 0.03 * m, -0.36, 0.12], 0.15 + 0.02 * m, 0.15), 0.2 - 0.05 * m); // up to the ear
+  d = smoothUnion(d, capsule(ax, y, z, [0.48 + 0.09 * m, -0.7 - 0.03 * m, -0.14], [0.13 + 0.1 * m, -1.05 - 0.02 * m, -0.61], 0.14 + 0.02 * m, 0.09 + 0.03 * m), 0.22 - 0.06 * m);  // jawline
   // Chin: coming to a point.
-  d = smoothUnion(d, ellipsoid(ax, y, z, [0, -1.06, -0.66], [0.14, 0.13, 0.15]), 0.12);
-  d = smoothUnion(d, ellipsoid(ax, y, z, [0, -1.12, -0.7], [0.07, 0.08, 0.09]), 0.06);
+  // (The male chin is broader and squarer.)
+  d = smoothUnion(d, ellipsoid(ax, y, z, [0, -1.06 - 0.02 * m, -0.66], [0.13 + 0.09 * m, 0.13, 0.15]), 0.12 - 0.03 * m);
+  d = smoothUnion(d, ellipsoid(ax, y, z, [0, -1.12 - 0.01 * m, -0.7], [0.07 + 0.07 * m, 0.08, 0.09]), 0.06);
   // Brow ridge.
-  d = smoothUnion(d, ellipsoid(ax, y, z, [0, 0.13, -0.72], [0.5, 0.13, 0.28]), 0.26); // (blended well up into the forehead)
+  d = smoothUnion(d, ellipsoid(ax, y, z, [0, 0.13, -0.72 - 0.03 * m], [0.5 + 0.04 * m, 0.13 + 0.02 * m, 0.28 + 0.03 * m]), 0.26 - 0.1 * m); // (blended well up into the forehead)
   // Underside: behind the jaw angle the head's underside rises steeply
   // towards the ear (the back edge of the jaw), and the back of the skull ends
   // above the neck, so the jaw's corner reads clearly from the side.
@@ -90,10 +94,20 @@ export function eyeLocal(ax, y, z) {
 // Points along the lash, in the eye's frame (in units of the eye radius):
 // [x, y, how far out from the eyeball's centre, thickness]. It follows the edge
 // of the upper lid at an even thickness right to the outer corner of the eye...
-const LASH_PATH = Array.from({ length: 9 }, (_, i) => {
-  const x = -1.1 + (2.3 * i) / 8;
-  return [x, 0.52 - 0.32 * x * x - 0.05, 1.32, i === 0 ? 0.06 : 0.12];
-});
+// m: 0 female, 1 male (thinner lashes with no wing, following the squarer lid).
+function lashPath(m) {
+  const { upper } = lidCurve(m);
+  const thick = 1 - 0.55 * m;
+  return Array.from({ length: 9 }, (_, i) => {
+    const x = -1.1 + (2.3 * i) / 8;
+    return [x, 0.52 - upper * x * x - 0.05, 1.32, (i === 0 ? 0.06 : 0.12) * thick];
+  });
+}
+
+// How strongly the upper and lower lid edges curve (lower = flatter, squarer eye).
+function lidCurve(m) {
+  return { upper: 0.32 - 0.15 * m, lower: 0.3 - 0.13 * m };
+}
 // ...where the wing starts: flicking up, out and tilted back round the side of
 // the head -- [offset x, y, z from the corner, thickness].
 const LASH_WING = [[0.1, 0.1, 0.16, 0.09], [0.16, 0.2, 0.32, 0.035]];
@@ -105,17 +119,17 @@ function lashPoint([x, y, out, t], r) {
   return { p: [px, py, pz], t: t * r };
 }
 
-function lashPoints(r) {
-  const points = LASH_PATH.map((q) => lashPoint(q, r));
+function lashPoints(r, m) {
+  const points = lashPath(m).map((q) => lashPoint(q, r));
   const end = points[points.length - 1].p;
-  for (const [dx, dy, dz, t] of LASH_WING) {
+  if (m < 0.5) for (const [dx, dy, dz, t] of LASH_WING) {
     points.push({ p: [end[0] + dx * r, end[1] + dy * r, end[2] + dz * r], t: t * r });
   }
   return points;
 }
 
-function lashDistance(lx, ly, lz, r) {
-  const points = lashPoints(r);
+function lashDistance(lx, ly, lz, r, m = 0) {
+  const points = lashPoints(r, m);
   let d = Infinity;
   for (let i = 1; i < points.length; i++) {
     d = Math.min(d, capsule(lx, ly, lz, points[i - 1].p, points[i].p, points[i - 1].t, points[i].t));
@@ -123,7 +137,7 @@ function lashDistance(lx, ly, lz, r) {
   return d;
 }
 
-function eyeRegion(ax, y, z, es) {
+function eyeRegion(ax, y, z, es, m = 0) {
   const r = EYE.radius * es;
   const [lx, ly, lz] = eyeLocal(ax, y, z);
   // Socket: carved into the face in front of the eyeball.
@@ -134,12 +148,13 @@ function eyeRegion(ax, y, z, es) {
   y = ly;
   const shell = Math.abs(Math.hypot(lx, ly, lz) - r * 1.08) - 0.05;
   const front = lz + 0.35 * r; // only on the front of the eyeball
-  const upperEdge = cy + r * (0.52 - 0.32 * dx * dx);
-  const lowerEdge = cy - r * (0.74 - 0.3 * dx * dx); // low: a tall, stylized eye
+  const curve = lidCurve(m);
+  const upperEdge = cy + r * (0.52 - curve.upper * dx * dx);
+  const lowerEdge = cy - r * (0.74 - curve.lower * dx * dx); // low: a tall, stylized eye
   // (Intersections are rounded, so the lid edges are smooth rather than ragged.)
   const upperLid = smoothIntersect(smoothIntersect(shell, upperEdge - y, 0.03), front, 0.05);
   const lowerLid = smoothIntersect(smoothIntersect(shell, y - lowerEdge, 0.03), front, 0.05);
-  return { socket, lids: smoothUnion(upperLid, lowerLid, 0.07), lash: lashDistance(lx, ly, lz, r) };
+  return { socket, lids: smoothUnion(upperLid, lowerLid, 0.07), lash: lashDistance(lx, ly, lz, r, m) };
 }
 
 function noseDistance(ax, y, z) {
@@ -198,10 +213,10 @@ function earDistance(ax, y, z) {
   return d;
 }
 
-function headDistance(x, y, z, es) {
+function headDistance(x, y, z, es, m = 0) {
   const ax = Math.abs(x);
-  let d = skullDistance(ax, y, z);
-  const eye = eyeRegion(ax, y, z, es);
+  let d = skullDistance(ax, y, z, m);
+  const eye = eyeRegion(ax, y, z, es, m);
   d = smoothSubtract(d, eye.socket, 0.08);
   d = smoothUnion(d, eye.lids, 0.09); // (wide, so the thin lid corners are filled in)
   d = smoothUnion(d, eye.lash, 0.012);
@@ -222,17 +237,17 @@ function headDistance(x, y, z, es) {
 const cache = new Map(); // eye size -> geometry
 
 // The head's skin mesh, scaled to head radius R.
-export function headGeometry(eyeSize, R) {
-  const key = eyeSize.toFixed(3) + ':' + R;
+export function headGeometry(eyeSize, R, m = 0) {
+  const key = eyeSize.toFixed(3) + ':' + R + ':' + m;
   let geometry = cache.get(key);
   if (!geometry) {
-    geometry = meshFromDistance((x, y, z) => headDistance(x, y, z, eyeSize), BOUNDS, DETAIL);
+    geometry = meshFromDistance((x, y, z) => headDistance(x, y, z, eyeSize, m), BOUNDS, DETAIL);
     const pos = geometry.attributes.position;
     const lash = new Float32Array(pos.count);
     const r = EYE.radius * eyeSize;
     for (let i = 0; i < pos.count; i++) {
       const [lx, ly, lz] = eyeLocal(Math.abs(pos.getX(i)), pos.getY(i), pos.getZ(i));
-      lash[i] = 1 - Math.min(Math.max(lashDistance(lx, ly, lz, r) / 0.012, 0), 1);
+      lash[i] = 1 - Math.min(Math.max(lashDistance(lx, ly, lz, r, m) / 0.012, 0), 1);
     }
     geometry.setAttribute('lashMask', new THREE.Float32BufferAttribute(lash, 1));
     geometry.scale(R, R, R);

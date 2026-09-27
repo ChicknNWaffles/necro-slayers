@@ -213,3 +213,13 @@ now please add an animation for jumping
 please run the game again so I can see how this all looks in motion
 
 please commit the changes
+
+I'm about to make some npcs, but first I want to make male and female variations of the humanoid model. The female will have breasts (which you will need to add. No need to make cleavage as they are fully dressed), wider hips, and softer features. The male will have wider shoulders, narrower hips, a larger jaw, and slightly more angular features. After making these variations please provide example turnaround renders of each
+
+please make the eyelashes thinner on the man, with now wing, and make the man's eyes a little more square. Also please make the woman's breasts not quite as pronounced
+
+Try again
+
+I began this project in a different session. There is a file in this folder called prompt_log.txt which contains a log of all of my prompts thus far, delinated by a blank line between them. Please read it to recover the context. Especially pay attention to the first prompt, as it contains a standing command to be obeyed with every prompt
+
+the changes were checked in the previous session's response to "try again". Please commit the changes

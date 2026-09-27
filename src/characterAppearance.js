@@ -9,6 +9,7 @@
 //   color:  a '#rrggbb' hex colour
 //   choice: one of a fixed list of values
 export const APPEARANCE_OPTIONS = {
+  bodyType:   { type: 'choice', label: 'Body type',  choices: ['female', 'male'], default: 'female' },
   height:     { type: 'range',  label: 'Height',     min: 0.85, max: 1.15, step: 0.01, default: 1 },
   build:      { type: 'range',  label: 'Build',      min: 0.8,  max: 1.3,  step: 0.01, default: 1 },
   headSize:   { type: 'range',  label: 'Head size',  min: 0.85, max: 1.2,  step: 0.01, default: 1 },
