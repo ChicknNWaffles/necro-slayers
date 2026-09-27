@@ -44,6 +44,7 @@ behind the player.
   - `characterAppearance.js` – the customizable appearance options (data only; used by a future character creator and save files)
   - `characterModel.js` – builds the 3D character from an appearance (part of the renderer)
   - `footModel.js` – the stylized feet, blended into the legs (part of the renderer)
+  - `headModel.js` – the sculpted head (jaw, eyes and eyelids, nose, lips, ears; part of the renderer)
   - `handModel.js` – the detailed hands (fingers, palm pads, palm lines, nails; part of the renderer)
   - `sculptedSurface.js` – tools for sculpting the body in code (base shapes plus muscles, bones and hollows, melted into one mesh)
 - `prompt_log.txt` – log of AI prompts used to build this project

@@ -88,7 +88,7 @@ export function partDistance({ shape, bumps = [], range: [lo, hi] }) {
     const yc = y < lo ? lo : y > hi ? hi : y;
     const beyond = y < lo ? lo - y : y > hi ? y - hi : 0;
     const quick = Math.hypot(x, z) - maxR;
-    if (quick > 0.05) return Math.hypot(quick, beyond);
+    if (quick > 0.12) return Math.hypot(quick, beyond); // (well beyond the widest blend between parts)
 
     const { rx, rz, cz } = shape(yc);
     const dz = z - cz;

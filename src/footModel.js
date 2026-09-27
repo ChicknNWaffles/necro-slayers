@@ -38,14 +38,14 @@ const FOOT_SHAPE = partDistance({
   // (The back of the heel is a separate rounded shape, see footDistance.)
   range: [-0.03, 0.168],
   shape: profile([
-    [-0.03, 0.031, 0.029, -0.053],
-    [-0.02, 0.033, 0.031, -0.052],   // heel
-    [0.01, 0.039, 0.035, -0.047],    // under the ankle
-    [0.05, 0.04, 0.028, -0.054],     // instep
-    [0.09, 0.041, 0.02, -0.061],     // ball of the foot
-    [0.13, 0.039, 0.015, -0.066],    // toes
-    [0.155, 0.029, 0.012, -0.068],
-    [0.168, 0.006, 0.006, -0.069],
+    [-0.03, 0.031, 0.0348, -0.0472],
+    [-0.02, 0.033, 0.0372, -0.0458], // heel
+    [0.01, 0.039, 0.042, -0.04],     // under the ankle
+    [0.05, 0.04, 0.0336, -0.0484],   // instep
+    [0.09, 0.041, 0.024, -0.057],    // ball of the foot
+    [0.13, 0.039, 0.018, -0.063],    // toes
+    [0.155, 0.029, 0.0144, -0.0656],
+    [0.168, 0.006, 0.0072, -0.0678],
   ]),
 });
 
@@ -54,7 +54,7 @@ function footDistance(x, y, z) {
   // The shape runs along the foot (-z), with its cross-sections in x and y.
   let d = FOOT_SHAPE(x, -z, y);
   // The back of the heel: one smooth, rounded curve.
-  d = smoothUnion(d, ellipsoid(x, y, z, [0, -0.054, 0.032], [0.029, 0.028, 0.027]), 0.012);
+  d = smoothUnion(d, ellipsoid(x, y, z, [0, -0.0484, 0.032], [0.029, 0.0336, 0.027]), 0.012);
   // Rising from the top of the foot into the ankle: a wide base narrowing
   // up towards the leg, like a triangle.
   // (Its base sits inside the heel, so it doesn't bulge out behind it.)

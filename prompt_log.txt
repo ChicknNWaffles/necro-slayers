@@ -149,3 +149,39 @@ I only meant boot as a way to simplify and stylize the feet without oversimpliyi
 please make the transition into the leg a little higher/steeper. Also, there's a random bump on the back of the heel. Please get rid of that
 
 please commit these changes since we are approaching the usage limit
+
+please give the calves the same kite-like curve from the front view that you gave to the forearms. I don't want anything else about the shape of the leg to be altered
+
+please make the kite shape on the calf more pronounced. Also there is a spherical bulge all the way around the leg at the knee. There should only be a bulge for the knee at the front. Also, please make the front of the thigh be bulged out enough to be almost flush with the knee
+
+please provide a render of the full body so I can evaluate how it is looking at the moment
+
+please make the feet a little taller. Also, please fix the lumpiness around the hips. That area is weirdly lumpy all the way around the body
+
+I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.
+
+there is a triangle of shadow near the hips on the back view in the middle of where the rear end would be. Please make the rear end look like the shape that would come from fabric over a normal rear end. I don't want anything too graphic but this looks wrong
+
+this looks much more natural. However, from the side view it seems that when I asked you to smooth out the bumps of the hip area you accidentally undid the fixes to the buttox area we did a while ago. Can you restore those fixes without undoing this most recent change?
+
+this looks much better. Let's now work on the head. I want it to have a more realistic jaw shape. Yes, the chin should still come to a point, but the whole jaw should not be one giant triangle. Give it a more realistic head shape. I also want sculpted in facial features instead of painted on ones and more anatomically accurate ears
+
+please make the tip of the chin pointier without messing up the rest of the jaw. Also please simplify the nose to be more like a triangular prism with slightly curved (concave not convex) edges. Also please add more roundness to the cheeks
+
+please alter the jaw such that the  gonial angle is further forward , more lined up with the outside corners of the eyes. Also please make the nose stick out further and make the cheeks sit lower on the face, softening the jaw
+
+please add the submental region so that the jaw actually connects to the neck in a smooth curve. Also please make the back of the head also connect smoothly to the neck. Also make the cheeks slightly less pronounced. also please make the nose triangular prism like shape have more of an isosceles shape so it has an actual nose bridge. Again, that edge should be a curved swoop, but only slightly curved. Also please move the mouth lower on the face, closer to the chin, and the bottom of the nose loser on the face as well. Also tilt the ears so that the front of the ears connect flushly with the face and the back of the ears flare out a bit
+
+please tilt the ears more so that the bottom front merge with the head and the top back flare out. Also please soften out the cheekbones. Also please make the brow ridge blend more smoothly into the forehead
+
+please make the cheekbone smoothly transition into the cheeks. Also there is a weird crease beside the browbone. Also there is a notch in the earlobe. Also please edit the eyes so they wrap around the head more and still look anime from the side profile
+
+I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.
+
+please lower the eyes and the eyebrows with them. Also please lower the bottom eyelid to make the eye look more stylized, and expand the iris accordingly so it looks like the face shape and not the expression
+
+please get rid of the dotted marks in the corners of the eyes. While you are at it, please create a simple sculpted eyelash around it. It should be shaped similar to winged eyeliner with a small wing, but as 3d eyelashes instead of painted on the face
+
+don't start the sing until it hits the corner of the eye. Also you can make it not look like a blob from the side view by making the wing tilt slightly back. Also you didn't get rid of the black specs in the corner of the eyes
+
+please commit the changes

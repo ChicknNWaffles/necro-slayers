@@ -11,6 +11,7 @@ import {
 } from './sculptedSurface.js';
 import { createHand } from './handModel.js';
 import { createFoot } from './footModel.js';
+import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 
 // Body measurements at default height and build, in world units.
 // The feet are at y = 0 and the character faces -Z. Total height is about 2,
@@ -69,11 +70,11 @@ export class CharacterModel {
 
 // Joint rotations (radians, outwards from the body) in the sculpting pose and
 // the standing pose.
-const SCULPT_POSE = { shoulder: 0.6, hip: 0.08 };
-const STAND_POSE = { shoulder: 0.1, hip: 0.02 };
+const SCULPT_POSE = { shoulder: 0.6, hip: 0.04 }; // legs are sculpted as they stand, so posing doesn't crease the hips
+const STAND_POSE = { shoulder: 0.1, hip: 0.04 };
 
 // How far (in units) each join between parts is smoothed over.
-const BLEND = { shoulder: 0.045, elbow: 0.01, hip: 0.045, knee: 0.02 };
+const BLEND = { shoulder: 0.045, elbow: 0.01, hip: 0.03, knee: 0.01 };
 
 // Size of the hands (handModel.js) relative to how they were modelled, so the
 // base of the hand matches the wrist end of the forearm.
@@ -415,17 +416,20 @@ function scaled(keys, w, neckFrom = Infinity) {
 }
 
 function torso(w) {
-  return { shape: torsoShape(w), bumps: torsoMuscles(), range: [0.895, 1.7] };
+  return { shape: torsoShape(w), bumps: torsoMuscles(), range: [0.86, 1.7] };
 }
 
 function torsoShape(w) {
   return profile(scaled([
-    [0.895, 0.004, 0.004, 0.01],   // crotch
-    [0.915, 0.07, 0.06, 0.01],
-    [0.95, 0.135, 0.095, 0.012],
-    [1.0, 0.158, 0.104, 0.015],    // hips
-    [1.05, 0.158, 0.1, 0.012],
-    [1.11, 0.143, 0.094, 0.004],
+    // The bottom closes gradually and lower down, between the tops of the
+    // thighs, the way fabric fills in there (no hollow underneath the seat).
+    [0.86, 0.004, 0.004, 0.02],    // crotch
+    [0.88, 0.05, 0.05, 0.02],
+    [0.91, 0.09, 0.075, 0.016],
+    [0.95, 0.158, 0.1, 0.012],
+    [1.0, 0.168, 0.104, 0.014],    // hips: wide enough to contain the tops of the thighs,
+    [1.05, 0.163, 0.1, 0.011],     // curving smoothly up into the waist
+    [1.11, 0.146, 0.093, 0.004],
     [1.17, 0.128, 0.086, 0],       // waist
     [1.24, 0.138, 0.092, -0.006],
     [1.31, 0.155, 0.1, -0.012],    // chest
@@ -494,31 +498,40 @@ function torsoMuscles() {
 // Limbs hang down from their joint (y = 0) and close off at both ends.
 function thigh(w, sign) {
   return {
-    range: [-0.52, 0.06],
+    // Ends just past the knee with the knee's cross-section, overlapping the
+    // shin, so the two meet without a ball-shaped joint (like the elbow).
+    range: [-0.5, 0.06],
     shape: profile(scaled([
-      [-0.52, 0.02, 0.02, 0], [-0.49, 0.05, 0.052, 0], [-0.44, 0.056, 0.058, 0],
-      [-0.3, 0.07, 0.072, -0.005], [-0.12, 0.085, 0.09, 0], [0, 0.09, 0.095, 0.005],
-      [0.03, 0.075, 0.08, 0.005], [0.06, 0.02, 0.02, 0.005],
+      [-0.5, 0.05, 0.055, 0], [-0.49, 0.05, 0.055, 0], [-0.44, 0.056, 0.058, 0],
+      [-0.3, 0.07, 0.072, -0.005], [-0.12, 0.085, 0.09, 0], [0, 0.078, 0.082, 0.005],
+      [0.03, 0.062, 0.068, 0.005], [0.05, 0.02, 0.02, 0.005], // (the top tucks inside the hips)
     ], w)),
     bumps: [
       blob({ angle: 0, y: -0.25, amp: 0.01, width: 0.05, height: 0.12 }),                // quadriceps
       blob({ angle: -sign * 0.6, y: -0.38, amp: 0.008, width: 0.03, height: 0.05 }),     // inner quad above the knee
       blob({ angle: sign * 1.5, y: -0.1, amp: 0.006, width: 0.05, height: 0.1 }),        // outer thigh
       blob({ angle: 0, y: -0.47, amp: 0.008, width: 0.02, height: 0.025 }),              // kneecap
+      blob({ angle: 0, y: -0.37, amp: 0.012, width: 0.045, height: 0.075 }),             // lower quads, nearly flush with the kneecap
       // Bottom of the glute, curving under into a soft fold at the top of the back of the thigh.
       blob({ angle: sign * (Math.PI - 0.35), y: -0.065, amp: 0.03, width: 0.055, height: 0.062 }),
       blob({ angle: sign * (Math.PI - 0.3), y: -0.155, amp: -0.004, width: 0.05, height: 0.015 }),
+      // Inner back of the top of the thigh, filled out so the two legs merge
+      // below the seat the way fabric bridges across there (no deep gap).
+      blob({ angle: -sign * 2.45, y: -0.075, amp: 0.02, width: 0.04, height: 0.06 }),
     ],
   };
 }
 
 function shin(w, sign) {
   return {
-    range: [-0.47, 0.04],
+    range: [-0.47, 0.025],
     shape: profile(scaled([
-      [-0.47, 0.015, 0.015, 0], [-0.44, 0.03, 0.032, 0], [-0.33, 0.036, 0.04, 0.002],
-      [-0.2, 0.05, 0.055, 0.005], [-0.1, 0.058, 0.062, 0.006], [0, 0.055, 0.058, 0.002],
-      [0.04, 0.02, 0.02, 0],
+      // From the front, a kite with rounded corners (like the forearm): widest
+      // about a quarter of the way down, tapering in straight lines to the ankle.
+      [-0.47, 0.015, 0.015, 0], [-0.44, 0.03, 0.032, 0], [-0.33, 0.0417, 0.04, 0.002],
+      [-0.27, 0.048, 0.0469, 0.0033], [-0.2, 0.0554, 0.055, 0.005], [-0.1, 0.066, 0.062, 0.006],
+      [-0.05, 0.059, 0.0605, 0.0045], [0, 0.049, 0.056, 0.002],
+      [0.025, 0.049, 0.056, 0.002], // top: the knee's cross-section (no rounded cap)
     ], w)),
     bumps: [
       blob({ angle: Math.PI - sign * 0.35, y: -0.12, amp: 0.014, width: 0.035, height: 0.07 }), // inner calf
@@ -607,169 +620,30 @@ function buildHead(head, a, mats) {
   centre.position.y = 0.85 * R;
   head.add(centre);
 
-  // Skull, reshaped into an anime face with a narrow, pointed chin.
-  const skull = new THREE.SphereGeometry(R, 48, 36);
-  reshapeVertices(skull, (v) => jaw(v, R));
-  centre.add(part(smoothNormals(skull), mats.skin));
+  // The sculpted head (see headModel.js), with eyebrows and blush coloured on.
+  const brow = new THREE.Color(a.hairColor).multiplyScalar(0.7);
+  const skin = addFaceColour(toon(a.skinColor, SKIN_TOON_STEPS), brow, R, a.eyeSize);
+  const headMesh = new THREE.Mesh(headGeometry(a.eyeSize, R), skin);
+  headMesh.castShadow = true;
+  // Its own outline, faded out around the eyes (the thin folds of the eyelids
+  // would otherwise let it show through as specks).
+  headMesh.add(new THREE.Mesh(headMesh.geometry, headOutlineMaterial(LINE_COLOR, OUTLINE_THICKNESS, R, a.eyeSize)));
+  centre.add(headMesh);
 
-  // Ears (mostly hidden by hair).
-  for (const sign of [-1, 1]) {
-    const ear = new THREE.SphereGeometry(1, 12, 10);
-    ear.scale(0.133 * R, 0.27 * R, 0.21 * R);
-    const earMesh = part(smoothNormals(ear), mats.skin);
-    earMesh.position.set(sign * 0.97 * R, -0.08 * R, 0.05 * R);
-    centre.add(earMesh);
+  // Eyeballs, set in the sockets.
+  const eyes = eyePlacement(a.eyeSize);
+  for (const { sign, centre: [x, y, z] } of eyes.eyes) {
+    const eyeball = new THREE.Mesh(
+      new THREE.SphereGeometry(eyes.radius * R, 32, 24),
+      eyeMaterial(toon('#ffffff', SKIN_TOON_STEPS), a.eyeColor, sign),
+    );
+    eyeball.position.set(x * R, y * R, z * R);
+    eyeball.rotation.y = -sign * eyes.yaw; // turned outwards, wrapping round the head
+    eyeball.scale.x = eyes.widen;
+    centre.add(eyeball);
   }
-
-  // Eyes, brows and blush: a drawn texture on a patch that follows the face.
-  const facePatch = new THREE.SphereGeometry(R * 1.004, 32, 16,
-    Math.PI * 1.5 - 0.55, 1.1,   // 1.1 rad wide, centred on the front (-Z)
-    1.15, 0.8);                  // from the forehead to below the eyes
-  reshapeVertices(facePatch, (v) => jaw(v, R));
-  const face = new THREE.Mesh(facePatch, new THREE.MeshBasicMaterial({
-    map: drawFaceTexture(a),
-    transparent: true,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-  }));
-  centre.add(face);
-
-  // Mouth: a small smile on the lower face.
-  const mouthY = -0.55 * R;
-  const mouthPoint = new THREE.Vector3(0, mouthY, -Math.sqrt(R * R - mouthY * mouthY));
-  jaw(mouthPoint, R);
-  const smileArc = Math.PI * 0.6;
-  const mouth = new THREE.Mesh(
-    new THREE.TorusGeometry(0.1 * R, 0.018 * R, 6, 16, smileArc),
-    new THREE.MeshBasicMaterial({ color: LINE_COLOR }),
-  );
-  mouth.rotation.z = -Math.PI / 2 - smileArc / 2; // centre the arc on the bottom
-  mouth.position.set(0, mouthPoint.y + 0.1 * R, mouthPoint.z - 0.003);
-  centre.add(mouth);
 
   buildHair(centre, a.hairStyle, mats.hair);
-}
-
-// Reshape the lower half of a sphere of radius R into a tapered jaw and chin.
-function jaw(v, R) {
-  const start = -0.25 * R; // just below the eyes
-  if (v.y < start) {
-    const t = Math.min((start - v.y) / (0.75 * R), 1); // 0 at the cheeks, 1 at the chin
-    v.x *= 1 - 0.45 * t * t;
-    v.y -= 0.22 * R * t * t;
-  }
-  return v;
-}
-
-// Draws the eyes, eyebrows and blush onto a canvas used as the face texture.
-function drawFaceTexture(a) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 384; // same shape as the face patch, so drawings aren't stretched
-  const ctx = canvas.getContext('2d');
-  const s = a.eyeSize;
-
-  // Blush under each eye.
-  for (const cx of [110, 402]) {
-    const g = ctx.createRadialGradient(cx, 318, 2, cx, 318, 48);
-    g.addColorStop(0, 'rgba(255, 120, 130, 0.35)');
-    g.addColorStop(1, 'rgba(255, 120, 130, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(cx - 60, 262, 120, 112);
-  }
-
-  const brow = new THREE.Color(a.hairColor).multiplyScalar(0.7).getStyle();
-  drawEye(ctx, 121, 211, s * 1.45, -1, a.eyeColor, brow); // viewer's left = the character's right eye
-  drawEye(ctx, 391, 211, s * 1.45, 1, a.eyeColor, brow);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
-}
-
-// outward: -1 if the outer corner of this eye is on the left of the texture, +1 if on the right.
-function drawEye(ctx, cx, cy, s, outward, eyeColor, browColor) {
-  const halfW = 42 * s;
-  const halfH = 56 * s;
-  const iris = new THREE.Color(eyeColor);
-  const irisDark = iris.clone().multiplyScalar(0.4).getStyle();
-  const irisLight = iris.clone().lerp(new THREE.Color('#ffffff'), 0.35).getStyle();
-
-  // White of the eye, with everything inside it clipped to its shape.
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, halfW, halfH, 0, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.clip();
-
-  // Iris: dark at the top, light at the bottom, with a darker rim.
-  const g = ctx.createLinearGradient(0, cy - halfH, 0, cy + halfH);
-  g.addColorStop(0, irisDark);
-  g.addColorStop(0.55, iris.getStyle());
-  g.addColorStop(1, irisLight);
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + 6 * s, 33 * s, 50 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = g;
-  ctx.fill();
-  ctx.lineWidth = 3 * s;
-  ctx.strokeStyle = irisDark;
-  ctx.stroke();
-
-  // Pupil.
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + 6 * s, 13 * s, 24 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(20, 16, 30, 0.85)';
-  ctx.fill();
-
-  // Shadow cast by the upper lid.
-  ctx.fillStyle = 'rgba(40, 30, 60, 0.25)';
-  ctx.fillRect(cx - halfW, cy - halfH, halfW * 2, 22 * s);
-
-  // Highlights (on the same side of both eyes, as if lit from one direction).
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(cx - 12 * s, cy - 16 * s, 11 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx + 13 * s, cy + 24 * s, 5 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // Thick upper lash line with a flick at the outer corner.
-  ctx.strokeStyle = LINE_COLOR;
-  ctx.fillStyle = LINE_COLOR;
-  ctx.lineCap = 'round';
-  ctx.lineWidth = 9 * s;
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + 2 * s, halfW + 2 * s, halfH, 0, Math.PI * 1.1, Math.PI * 1.9);
-  ctx.stroke();
-  const cornerX = cx + outward * (halfW + 1 * s);
-  const cornerY = cy - 16 * s;
-  ctx.beginPath();
-  ctx.moveTo(cornerX - outward * 8 * s, cornerY - 10 * s);
-  ctx.lineTo(cornerX + outward * 14 * s, cornerY - 8 * s);
-  ctx.lineTo(cornerX, cornerY + 8 * s);
-  ctx.closePath();
-  ctx.fill();
-
-  // Faint lower lash at the outer side.
-  ctx.lineWidth = 3 * s;
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, halfW, halfH, 0,
-    outward > 0 ? Math.PI * 0.05 : Math.PI * 0.6,
-    outward > 0 ? Math.PI * 0.4 : Math.PI * 0.95);
-  ctx.stroke();
-
-  // Eyebrow: a thin arc above the eye, rising towards the outer end.
-  ctx.strokeStyle = browColor;
-  ctx.lineWidth = 5 * s;
-  ctx.beginPath();
-  ctx.moveTo(cx - outward * 30 * s, cy - halfH - 12 * s);
-  ctx.quadraticCurveTo(cx, cy - halfH - 24 * s, cx + outward * 40 * s, cy - halfH - 16 * s);
-  ctx.stroke();
 }
 
 // --- Hair ----------------------------------------------------------------
