@@ -193,3 +193,23 @@ everywhere were you currently have one ribbon for a lock of hair, please make 3,
 this is to make the hair fuller
 
 please commit these changes
+
+now, please run the game so I can test how it feels with the new character model
+
+Now please add a walk cycle animation that plays during movment, and a run cycle animation that plays during movement while capslock is enabled
+
+please run the game so I can see these animations in action
+
+the animations are going way too fast. Please slow down the animations
+
+please run it so I can see how it looks in motion
+
+please make it so that the feet stay attached to the legs when in motion.  Also please make a variation on the running animation for when running backwards that doesn't have them leaning forwards. For the running backwards animation, they should be very upright, slightly leaning back, and looking over their shoulder to look behind them
+
+please run the game so I can see how it looks in motion
+
+now please add an animation for jumping
+
+please run the game again so I can see how this all looks in motion
+
+please commit the changes

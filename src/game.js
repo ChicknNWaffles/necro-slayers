@@ -202,6 +202,10 @@ function updatePlayer(dt) {
 
     pos.x += dirX * speed * dt;
     pos.z += dirZ * speed * dt;
+    player.moveSpeed = speed;
+    player.movingBackward = movingBackward;
+  } else {
+    player.moveSpeed = 0;
   }
 
   // Turn the body towards the side being moved to (right is a negative yaw),
@@ -298,6 +302,13 @@ function frame(now) {
   updateCamera(dt);
   updatePlayer(dt);
   renderer.updatePlayer(player.position, player.yaw + player.strafeTurn);
+  renderer.animatePlayer({
+    speed: player.moveSpeed,
+    running: capsLockOn,
+    backward: player.movingBackward,
+    onGround: player.onGround,
+    verticalSpeed: player.velocityY / PLAYER.jumpSpeed, // +1 at take-off, falling below 0
+  }, dt);
   renderer.updateCamera({ yaw: getCameraYaw(), pitch: camera.pitch });
   renderer.render();
 

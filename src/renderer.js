@@ -78,6 +78,11 @@ export class GameRenderer {
     this.player.rotation.y = yaw;
   }
 
+  // Animate the player's body (walking, running) -- see characterAnimation.js.
+  animatePlayer(state, dt) {
+    this.playerModel.animate(state, dt);
+  }
+
   // Place the camera around the player.
   // yaw:   which direction the camera looks horizontally (same convention as the player)
   // pitch: how far above the player the camera sits, in radians (negative = below)

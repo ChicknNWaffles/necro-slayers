@@ -11,6 +11,7 @@ import {
 } from './sculptedSurface.js';
 import { createHand } from './handModel.js';
 import { createFoot } from './footModel.js';
+import { CharacterAnimator } from './characterAnimation.js';
 import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 
 // Body measurements at default height and build, in world units.
@@ -45,7 +46,13 @@ export class CharacterModel {
     this.root = new THREE.Group(); // add this to the scene; its origin is at the feet
     this.body = null;
     this.joints = {};
+    this.animator = new CharacterAnimator();
     this.setAppearance(appearance);
+  }
+
+  // Play the walk and run cycles (see characterAnimation.js).
+  animate(state, dt) {
+    this.animator.update(this.joints, state, dt, this.height);
   }
 
   // Rebuild the body to match a new appearance.
@@ -57,6 +64,7 @@ export class CharacterModel {
     const { body, joints } = buildBody(appearance);
     this.body = body;
     this.joints = joints;
+    this.height = appearance.height;
     this.root.add(body);
   }
 }
