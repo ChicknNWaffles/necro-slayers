@@ -647,96 +647,180 @@ function buildHead(head, a, mats) {
 }
 
 // --- Hair ----------------------------------------------------------------
+// A base layer of hair over the skull, and locks of hair shaped like ribbons:
+// flat, the same width along their length until they taper to a point at the
+// end, draping over the head under gravity with a gentle sway and twist.
+// Everything here is in head radii (scaled by R at the end).
+
+// The skull's shape (matches the cranium in headModel.js): an ellipsoid.
+const SKULL = { centre: [0, 0.06, 0.06], radii: [0.88, 0.96, 1.02] };
+const HAIR_SHELL = 1.07;  // the base layer, as a multiple of the skull's size
+const LOCK_STEPS = 40;
 
 function buildHair(centre, style, hairMat) {
   if (style === 'none') return;
   const R = BODY.headRadius;
-  const Rh = R * 1.07; // hair sits just outside the skull
+  const hair = new THREE.Group();
+  hair.scale.setScalar(R);
+  centre.add(hair);
 
-  // Cap over the top and back of the head, tilted back so the forehead shows.
-  const cap = part(new THREE.SphereGeometry(Rh, 40, 24, 0, Math.PI * 2, 0, 1.4), hairMat);
-  cap.rotation.x = 0.3;
-  centre.add(cap);
+  // Base layer: the skull shape, covering the top and back of the head, tilted
+  // back so the forehead shows and reaching down to the nape at the back.
+  const cap = new THREE.SphereGeometry(1, 48, 32, 0, Math.PI * 2, 0, 1.75);
+  cap.rotateX(0.45);
+  cap.scale(...SKULL.radii.map((r) => r * HAIR_SHELL));
+  cap.translate(...SKULL.centre);
+  hair.add(part(smoothNormals(cap), hairMat));
+
+  // Each lock is three ribbons, offset slightly from each other: the middle
+  // one on top, the outer two slightly shorter and swaying differently. Together
+  // they make the hair fuller.
+  const lock = (options) => {
+    for (const k of [-1, 1, 0]) {
+      const o = { ...options, width: options.width * (k ? 0.95 : 1), length: options.length * (k ? 0.92 + 0.04 * k : 1) };
+      o.sway = (options.sway ?? 0) + k * 0.03;
+      o.twist = (options.twist ?? 0) * (1 + 0.25 * k);
+      o.raise = k ? 0 : 0.02; // the middle ribbon lies on top
+      if (o.from) {
+        const side = normalizeV(crossV(o.dir, [0, 1, 0]));
+        o.from = o.from.map((v, i) => v + side[i] * k * options.width * 0.45);
+      } else {
+        o.az += k * (options.width * 0.45 / Math.max(Math.sin(options.polar), 0.3)) * (180 / Math.PI);
+        o.polar += Math.abs(k) * 0.03;
+      }
+      hair.add(part(ribbonLock(o), hairMat));
+    }
+  };
 
   // Bangs across the forehead: shorter in the middle, longer at the sides.
   const bangs = [
-    { angle: -62, length: 0.95 }, { angle: -40, length: 0.8 }, { angle: -20, length: 0.62 },
-    { angle: 0, length: 0.55 }, { angle: 20, length: 0.65 }, { angle: 40, length: 0.82 },
-    { angle: 62, length: 0.95 },
+    { az: -60, length: 1.95 }, { az: -40, length: 1.75 }, { az: -20, length: 1.6 },
+    { az: 0, length: 1.5 }, { az: 20, length: 1.62 }, { az: 40, length: 1.78 }, { az: 60, length: 1.95 },
   ];
-  for (const b of bangs) {
-    // Outer bangs lean out less, so they follow the side of the head instead of flaring.
-    const outer = Math.abs(b.angle) / 62;
-    addLock(centre, hairMat, {
-      angle: b.angle, y: 0.6 * R, length: b.length * R, width: 0.24 * R,
-      tilt: 0.45 - 0.3 * outer, curl: -0.25 + 0.25 * outer,
-    });
-  }
+  bangs.forEach((b, i) => lock({
+    az: b.az, polar: 0.3, length: b.length, width: 0.3, sway: 0.1 * (i % 2 ? 1 : -1), twist: 0.5,
+  }));
 
-  // Strands framing the face, down to the jaw.
-  for (const angle of [-80, 80]) {
-    addLock(centre, hairMat, { angle, y: 0.35 * R, length: 1.35 * R, width: 0.22 * R, tilt: 0.12, curl: -0.1 });
-  }
+  // Strands framing the face, in front of the ears, down to the jaw.
+  for (const az of [-72, 72]) lock({ az, polar: 0.6, length: 2.1, width: 0.26, sway: 0.1, twist: 0.6 });
 
-  // Back of the head.
-  const backLength = style === 'long' ? 3.6 * R : 1.1 * R;
-  for (let angle = 105; angle <= 255; angle += 25) {
-    addLock(centre, hairMat, {
-      angle, y: 0.3 * R, length: backLength, width: 0.34 * R,
-      tilt: style === 'long' ? 0.12 : 0.15, curl: style === 'long' ? 0.15 : 0.1,
+  // Sides and back of the head.
+  const long = style === 'long';
+  for (let az = 95, i = 0; az <= 265; az += 17, i++) {
+    lock({
+      az, polar: 0.45, length: long ? 4.2 : 2.35, width: 0.36,
+      sway: (long ? 0.16 : 0.1) * (i % 2 ? 1 : -1), twist: long ? 0.9 : 0.5,
     });
   }
 
   if (style === 'ponytail') {
-    const tie = part(new THREE.SphereGeometry(0.2 * R, 12, 10), hairMat);
-    tie.position.set(0, 0.5 * R, 1.02 * R);
-    centre.add(tie);
-    // Leaves the tie pointing out from the head, then curves down.
-    addLock(centre, hairMat, { angle: 180, y: 0.5 * R, radius: 1.08 * R, length: 3.4 * R, width: 0.42 * R, tilt: 0.5, curl: 0.3 });
+    const tie = part(new THREE.SphereGeometry(0.2, 12, 10), hairMat);
+    tie.position.set(0, 0.5, 1.12);
+    hair.add(tie);
+    lock({ from: [0, 0.5, 1.15], dir: [0, 0.2, 1], length: 3.2, width: 0.44, sway: 0.12, twist: 1.0 });
   } else if (style === 'twintails') {
     for (const sign of [-1, 1]) {
-      const tie = part(new THREE.SphereGeometry(0.16 * R, 12, 10), hairMat);
-      tie.position.set(sign * 0.9 * R, 0.45 * R, 0.45 * R);
-      centre.add(tie);
-      addLock(centre, hairMat, {
-        angle: -sign * 116, y: 0.45 * R, radius: 1.0 * R, // same spot as the tie
-        length: 3.8 * R, width: 0.46 * R, tilt: 0.6, curl: 0.25,
-      });
+      const tie = part(new THREE.SphereGeometry(0.16, 12, 10), hairMat);
+      tie.position.set(sign * 0.92, 0.45, 0.45);
+      hair.add(tie);
+      lock({ from: [sign * 0.96, 0.45, 0.48], dir: [sign * 0.8, 0.3, 0.5], length: 3.6, width: 0.44, sway: 0.12, twist: 1.0 });
     }
   }
 }
 
-// Adds one pointed lock of hair hanging from the head.
-//   angle:  where around the head it starts, in degrees (0 = front, 90 = the character's left)
-//   y:      height on the head it starts at
-//   radius: distance from the head's centre (defaults to just outside the hair cap)
-//   tilt:   how far the tip leans away from the head, in radians
-//   curl:   how much the lock curves (negative curls away from the head)
-function addLock(centre, hairMat, { angle, y, radius, length, width, tilt, curl }) {
-  const R = BODY.headRadius;
-  const r = radius ?? Math.sqrt(Math.max((R * 1.07) ** 2 - y * y, 0)) * 0.98;
-
-  const pivot = new THREE.Group(); // turned so that "outwards" is its local -Z
-  pivot.rotation.y = angle * Math.PI / 180;
-  centre.add(pivot);
-
-  const lock = part(lockGeometry(length, width, curl), hairMat);
-  lock.position.set(0, y, -r);
-  lock.rotation.x = tilt;
-  pivot.add(lock);
+// Pushes a point out of the hair shell (so locks lie on the base layer), and
+// returns the outward direction there.
+function onShell(p, lift) {
+  const q = p.map((v, i) => (v - SKULL.centre[i]) / SKULL.radii[i]);
+  const k = Math.hypot(...q);
+  const shell = HAIR_SHELL + lift;
+  if (k < shell) for (let i = 0; i < 3; i++) p[i] = SKULL.centre[i] + (q[i] / k) * shell * SKULL.radii[i];
+  return normalizeV(q.map((v, i) => v / SKULL.radii[i]));
 }
 
-// A pointed, slightly flattened lock of hair, hanging down from y = 0 with a curve.
-function lockGeometry(length, width, curl) {
-  const g = lathe([
-    [0, -length], [width * 0.25, -length * 0.8], [width * 0.7, -length * 0.45],
-    [width, -length * 0.12], [width * 0.8, 0], [0, width * 0.35],
-  ], 0.5, 12);
-  reshapeVertices(g, (v) => {
-    const t = Math.min(Math.max(-v.y / length, 0), 1);
-    v.z += curl * length * t * t; // bend towards the tip
-    return v;
+function normalizeV(v) { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); }
+function crossV(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+
+// One ribbon-like lock of hair.
+//   az, polar: where it starts on the head (degrees round from the front; radians down from the top),
+//              or from/dir: a start point and direction (for tails hanging from a tie)
+//   length, width: in head radii
+//   sway: how far it swings from side to side; twist: how much it turns about its length
+function ribbonLock({ az, polar, from, dir, length, width, sway = 0, twist = 0, raise = 0 }) {
+  const thickness = width * 0.14;
+  const lift = thickness + raise; // how far its centre sits above the base layer
+  let p, d;
+  if (from) {
+    p = [...from];
+    d = normalizeV(dir);
+  } else {
+    const a = (az * Math.PI) / 180;
+    const u = [Math.sin(polar) * Math.sin(a), Math.cos(polar), -Math.sin(polar) * Math.cos(a)];
+    p = u.map((v, i) => SKULL.centre[i] + v * SKULL.radii[i] * HAIR_SHELL);
+    // Start off heading down the scalp, away from the crown.
+    d = normalizeV([u[0], -Math.max(Math.sin(polar), 0.3), u[2]].map((v, i) => (i === 1 ? v : v * Math.cos(polar))));
+  }
+
+  // Lay it down step by step: it keeps its direction, gravity bends it down,
+  // and it's kept on (or outside) the base layer.
+  const ds = length / LOCK_STEPS;
+  const points = [];
+  for (let i = 0; i <= LOCK_STEPS; i++) {
+    const n = onShell(p, lift);
+    points.push({ p: [...p], n });
+    d = normalizeV([d[0], d[1] - 0.09, d[2]]);
+    // Slide along the head rather than into it.
+    const into = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+    if (into < 0 && Math.hypot(...p.map((v, j) => (v - SKULL.centre[j]) / SKULL.radii[j])) <= HAIR_SHELL + lift + 1e-6) {
+      d = normalizeV(d.map((v, j) => v - into * n[j]));
+    }
+    p = p.map((v, j) => v + d[j] * ds);
+  }
+
+  // Frames along it (width across, thickness outwards), with sway and twist.
+  const frames = points.map((pt, i) => {
+    const next = points[Math.min(i + 1, LOCK_STEPS)].p, prev = points[Math.max(i - 1, 0)].p;
+    const T = normalizeV(next.map((v, j) => v - prev[j]));
+    let N = normalizeV(pt.n.map((v, j) => v - (v * T[0] + 0) * 0));
+    const dotNT = N[0] * T[0] + N[1] * T[1] + N[2] * T[2];
+    N = normalizeV(N.map((v, j) => v - dotNT * T[j]));
+    let B = crossV(T, N);
+    const s = i / LOCK_STEPS;
+    const tw = twist * s * s;
+    const c = Math.cos(tw), sn = Math.sin(tw);
+    const B2 = B.map((v, j) => v * c + N[j] * sn);
+    const N2 = N.map((v, j) => -B[j] * sn + v * c);
+    const offset = sway * Math.sin(Math.PI * 1.5 * s) * s;
+    const centreP = pt.p.map((v, j) => v + B[j] * offset);
+    onShell(centreP, lift);
+    // Same width until the last third, then tapering to a point.
+    const taper = s < 0.65 ? 1 : Math.max(1 - (s - 0.65) / 0.35, 0.03);
+    const root = Math.min(1, 0.4 + s * 6); // slightly narrower where it leaves the head
+    return { c: centreP, B: B2, N: N2, w: (width / 2) * Math.sqrt(taper) * root, h: (thickness / 2) * Math.max(taper, 0.3) };
   });
+
+  // A flat cross-section with rounded edges (a superellipse), swept along the frames.
+  const SIDES = 12;
+  const positions = [];
+  for (const f of frames) {
+    for (let k = 0; k <= SIDES; k++) {
+      const a = (2 * Math.PI * k) / SIDES;
+      const cx = Math.sign(Math.cos(a)) * Math.abs(Math.cos(a)) ** 0.45 * f.w;
+      const cy = Math.sign(Math.sin(a)) * Math.abs(Math.sin(a)) ** 0.45 * f.h;
+      positions.push(...f.c.map((v, j) => v + f.B[j] * cx + f.N[j] * cy));
+    }
+  }
+  const indices = [];
+  const row = SIDES + 1;
+  for (let i = 0; i < LOCK_STEPS; i++) {
+    for (let k = 0; k < SIDES; k++) {
+      const a = i * row + k, b = a + 1, c2 = a + row, d2 = c2 + 1;
+      indices.push(a, c2, b, b, c2, d2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setIndex(indices);
   return smoothNormals(g);
 }
 
@@ -775,27 +859,6 @@ function part(geometry, mat) {
   mesh.castShadow = true;
   mesh.add(new THREE.Mesh(geometry, outlineMaterial));
   return mesh;
-}
-
-// A smooth shape spun around the vertical axis (used for hair locks).
-//   outline: [radius, height] pairs from bottom to top (smoothed into a curve)
-//   depth:   front-to-back squash (1 = round)
-function lathe(outline, depth = 1, radialSegments = 28) {
-  const curve = new THREE.SplineCurve(outline.map(([r, y]) => new THREE.Vector2(r, y)));
-  const points = curve.getPoints(outline.length * 6).map((p) => new THREE.Vector2(Math.max(p.x, 0.0001), p.y));
-  const g = new THREE.LatheGeometry(points, radialSegments);
-  g.scale(1, 1, depth);
-  return smoothNormals(g);
-}
-
-function reshapeVertices(geometry, fn) {
-  const pos = geometry.attributes.position;
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    fn(v.fromBufferAttribute(pos, i));
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  pos.needsUpdate = true;
 }
 
 // Free the GPU memory used by a model that is being replaced.

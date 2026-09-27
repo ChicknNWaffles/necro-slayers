@@ -185,3 +185,11 @@ please get rid of the dotted marks in the corners of the eyes. While you are at 
 don't start the sing until it hits the corner of the eye. Also you can make it not look like a blob from the side view by making the wing tilt slightly back. Also you didn't get rid of the black specs in the corner of the eyes
 
 please commit the changes
+
+ok, now lets deal with the hair. I want the locks of hair to be more like rectangles, only tapering to a tip at the end. I also want them to flow like ribbons, which will create the illusion of the flow of real hair. Also the circle of the hair color on top of the hair to fill in the spots without defined locks of the hair needs to be expanded such that it is flush with each lock. This should also help the issue where the head sculpt is clipping out of the hair at the back
+
+everywhere were you currently have one ribbon for a lock of hair, please make 3, offset slightly from each other
+
+this is to make the hair fuller
+
+please commit these changes
