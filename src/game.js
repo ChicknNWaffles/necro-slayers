@@ -4,6 +4,7 @@ import { GameRenderer } from './renderer.js';
 import { createAppearance } from './characterAppearance.js';
 import { playVoice, startAudio } from './sound.js';
 import { COMMAND_CALL } from './voice.js';
+import { createZombie } from './enemies.js';
 
 // --- World ---------------------------------------------------------------
 
@@ -51,8 +52,10 @@ export function setPlayerAppearance(values) {
 
 // Characters in the world. They use the same character models as the player
 // (see characterAppearance.js), but their looks are fixed. They wander around
-// the floor; Z makes them follow the player (and Z again stops them).
+// the floor; Z makes the friendly ones follow the player (and Z again stops them).
 // radius: how close the player can get (the player can't walk through them).
+// follows: whether they answer the player's call to follow.
+// wanderSpeed: how fast they wander (units per second).
 const NPCS = [
   {
     // Evalyn, a cleric: a pale, freckled, red-haired woman in a flowing white
@@ -77,6 +80,20 @@ const NPCS = [
     position: { x: -6, y: FLOOR.y, z: -7 },
     yaw: Math.atan2(-6, -7), // facing the middle of the floor (where the player starts)
     radius: 0.5,
+    follows: true,
+  },
+  {
+    // A zombie: the first enemy (a random character, see enemies.js). It
+    // shambles around slowly with its arms out; it doesn't fight yet.
+    name: 'Zombie',
+    role: 'enemy',
+    ...createZombie(),
+    pose: 'zombie',
+    position: { x: 7, y: FLOOR.y, z: -9 },
+    yaw: Math.atan2(7, -9),
+    radius: 0.45,
+    follows: false,
+    wanderSpeed: 1.2,
   },
 ].map((npc) => ({
   ...npc,
@@ -107,6 +124,7 @@ const NPC_MOVE = {
 // a wave ("you can stay").
 function toggleFollowing() {
   for (const npc of NPCS) {
+    if (!npc.follows) continue;
     npc.following = !npc.following;
     npc.target = null;
     npc.waitTime = 0;
@@ -163,7 +181,7 @@ function updateNpc(npc, dt) {
   } else {
     npc.target ??= pickWanderTarget(pos);
     goal = npc.target;
-    speed = NPC_MOVE.wanderSpeed;
+    speed = npc.wanderSpeed ?? NPC_MOVE.wanderSpeed;
   }
 
   let faceX = 0, faceZ = 0;

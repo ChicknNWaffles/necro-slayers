@@ -15,6 +15,9 @@ import { CharacterAnimator } from './characterAnimation.js';
 import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 import { skirtGeometry, sleeveGeometry, SkirtMotion } from './clothingModel.js';
 import { braidGeometry } from './braidModel.js';
+import {
+  WOUND_JOINT, woundCut, woundDistance, woundBones, addRot, DECAY_GLSL, DECAY_COLORS, EYELID_DROOP,
+} from './decayModel.js';
 
 // Body measurements at default height and build, in world units.
 // The feet are at y = 0 and the character faces -Z. Total height is about 2,
@@ -46,11 +49,13 @@ const CLOTH_TOON_STEPS = [178, 222, 255];      // loose clothes: a little strong
 
 export class CharacterModel {
   // pose: how the character stands (see POSES), e.g. 'handsFolded' for an NPC.
-  constructor(appearance, { pose = 'stand' } = {}) {
+  // decay: makes the character undead -- rot, torn clothes and wounds (see decayModel.js).
+  constructor(appearance, { pose = 'stand', decay = null } = {}) {
     this.root = new THREE.Group(); // add this to the scene; its origin is at the feet
     this.body = null;
     this.joints = {};
     this.pose = pose;
+    this.decay = decay;
     this.animator = new CharacterAnimator();
     this.setAppearance(appearance);
   }
@@ -84,7 +89,7 @@ export class CharacterModel {
       this.root.remove(this.body);
       disposeTree(this.body);
     }
-    const { body, joints, armPose, skirt, sleeves, onSkirt, mouth } = buildBody(appearance, this.pose);
+    const { body, joints, armPose, skirt, sleeves, onSkirt, mouth } = buildBody(appearance, this.pose, this.decay);
     this.mouth = mouth;
     this.body = body;
     this.joints = joints;
@@ -118,6 +123,8 @@ const POSES = {
   stand: {},
   // Hands held together in front, at the waist.
   handsFolded: { shoulder: [0.25, 0.65, -0.05], elbow: [1.5, 0.8, 0] },
+  // A zombie's arms reaching out in front, kept up even while walking.
+  zombie: { shoulder: [1.3, 0, 0.02], elbow: [0.35, 0, 0], whileMoving: true },
 };
 
 // How far (in units) each join between parts is smoothed over.
@@ -141,7 +148,7 @@ const SCULPT_DETAIL = 0.008; // sampling size when turning the sculpt into a mes
 const SCULPT_CACHE_SIZE = 4;
 const sculptCache = new Map(); // build -> finished body mesh geometry
 
-function buildBody(a, poseName = 'stand') {
+function buildBody(a, poseName = 'stand', decay = null) {
   const mats = {
     skin:  toon(a.skinColor, SKIN_TOON_STEPS),
     shoes: toon(a.shoeColor),
@@ -177,10 +184,10 @@ function buildBody(a, poseName = 'stand') {
       [`${side}Hip`]: hip, [`${side}Knee`]: knee, [`${side}Ankle`]: ankle,
     });
     parts.push(
-      { name: 'upperArm', bone: shoulder, blend: BLEND.shoulder, ...upperArm(w * sexMix(m, 'arms'), sign) },
-      { name: 'forearm', bone: elbow, blend: BLEND.elbow, ...forearm(w, sign) },
-      { name: 'thigh', bone: hip, blend: BLEND.hip, ...thigh(w, sign) },
-      { name: 'shin', bone: knee, blend: BLEND.knee, ...shin(w, sign) },
+      { name: 'upperArm', side, bone: shoulder, blend: BLEND.shoulder, ...upperArm(w * sexMix(m, 'arms'), sign) },
+      { name: 'forearm', side, bone: elbow, blend: BLEND.elbow, ...forearm(w, sign) },
+      { name: 'thigh', side, bone: hip, blend: BLEND.hip, ...thigh(w, sign) },
+      { name: 'shin', side, bone: knee, blend: BLEND.knee, ...shin(w, sign) },
     );
   }
   root.updateMatrixWorld(true);
@@ -198,6 +205,12 @@ function buildBody(a, poseName = 'stand') {
         return Math.max(full(x, y, z) + tuck, cut - y);
       };
     }
+    // A wound: a band of the limb's flesh cut away (see decayModel.js).
+    part.wound = decay?.wounds?.find((wd) => wd.limb === part.name && wd.side === part.side);
+    if (part.wound) {
+      const whole = local, wound = part.wound;
+      local = (x, y, z) => Math.max(whole(x, y, z), woundCut(wound, y));
+    }
     const toPart = part.bone.matrixWorld.clone().invert();
     part.toPart = toPart;
     part.distance = part.bone === root ? local : (x, y, z) => {
@@ -213,7 +226,8 @@ function buildBody(a, poseName = 'stand') {
 
   // Sculpting takes about a second, and only the build changes the sculpt, so
   // recent sculpts are kept and reused (e.g. while a character creator changes colours).
-  const key = `${w.toFixed(3)}:${m}:${a.outfit}`;
+  const woundKey = (decay?.wounds ?? []).map((wd) => `${wd.side}${wd.limb}`).sort().join(',');
+  const key = `${w.toFixed(3)}:${m}:${a.outfit}:${woundKey}`;
   let geometry = sculptCache.get(key);
   if (!geometry) {
     geometry = meshFromDistance(bodyDistance, sculptBounds(parts), SCULPT_DETAIL);
@@ -233,7 +247,7 @@ function buildBody(a, poseName = 'stand') {
   const body = new THREE.Group();
   body.scale.setScalar(a.height * OVERALL_SCALE);
   body.add(root);
-  const skin = new THREE.SkinnedMesh(geometry, clothedSkinMaterial(a));
+  const skin = new THREE.SkinnedMesh(geometry, clothedSkinMaterial(a, decay));
   const outline = new THREE.SkinnedMesh(geometry, outlineMaterial);
   for (const m of [skin, outline]) {
     m.frustumCulled = false;
@@ -266,6 +280,7 @@ function buildBody(a, poseName = 'stand') {
         key: `${w.toFixed(3)}`,
       },
     });
+    if (decay) addRot(hand.material, decay.seed + 3.1 * sign);
     hand.position.y = -BODY.forearmLength; // the hand's origin is the wrist
     hand.scale.set(...scale);
     joints[`${side}Elbow`].add(hand);
@@ -298,7 +313,13 @@ function buildBody(a, poseName = 'stand') {
   const head = new THREE.Group();
   head.scale.setScalar(a.headSize);
   joints.head.add(head);
-  const hair = buildHead(head, a, mats);
+  const hair = buildHead(head, a, mats, decay);
+
+  // Bones showing through wounds, carried by the limb's joint.
+  for (const wound of decay?.wounds ?? []) {
+    const sign = wound.side === 'left' ? -1 : 1;
+    joints[`${wound.side}${WOUND_JOINT[wound.limb]}`].add(...woundBones(wound, sign, w, part, toon));
+  }
 
   // Bend the sculpt into the standing pose.
   // The arms' rotations in the chosen pose ('rest') and hanging at the sides
@@ -315,8 +336,8 @@ function buildBody(a, poseName = 'stand') {
     const armsOut = outfit.skirt ? SKIRT_ARM_SPREAD : STAND_POSE.shoulder;
     armPose.rest[`${side}Shoulder`] = turn(pose.shoulder, armsOut);
     armPose.rest[`${side}Elbow`] = turn(pose.elbow);
-    armPose.moving[`${side}Shoulder`] = turn(undefined, armsOut);
-    armPose.moving[`${side}Elbow`] = turn();
+    armPose.moving[`${side}Shoulder`] = pose.whileMoving ? armPose.rest[`${side}Shoulder`] : turn(undefined, armsOut);
+    armPose.moving[`${side}Elbow`] = pose.whileMoving ? armPose.rest[`${side}Elbow`] : turn();
     joints[`${side}Hip`].rotation.z = sign * STAND_POSE.hip;
   }
   setArms('rest');
@@ -520,6 +541,7 @@ function addSkinWeightsAndClothes(geometry, parts, joints, CLOTHES) {
   const skinWeight = new Float32Array(count * 4);
   const shirtField = new Float32Array(count);
   const pantsField = new Float32Array(count);
+  const woundField = new Float32Array(count).fill(1); // distance from a wound's cut faces (see decayModel.js)
   const local = new THREE.Vector3();
   const falloff = 0.015; // how gradually a vertex is shared between neighbouring parts
 
@@ -553,6 +575,9 @@ function addSkinWeightsAndClothes(geometry, parts, joints, CLOTHES) {
       if (share < 0.001) return;
       local.set(x, y, z).applyMatrix4(part.toPart);
       const along = -local.y; // distance down the limb from its joint
+      if (part.wound && share > 0.3 && Math.hypot(local.x, local.z) < 0.1) {
+        woundField[v] = Math.min(woundField[v], woundDistance(part.wound, local.y));
+      }
       if (part.name === 'torso') {
         shirt += share * bodyShirt;
         pants += share * bodyPants;
@@ -586,6 +611,7 @@ function addSkinWeightsAndClothes(geometry, parts, joints, CLOTHES) {
   geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
   geometry.setAttribute('shirtField', new THREE.Float32BufferAttribute(shirtField, 1));
   geometry.setAttribute('pantsField', new THREE.Float32BufferAttribute(pantsField, 1));
+  geometry.setAttribute('woundField', new THREE.Float32BufferAttribute(woundField, 1));
 }
 
 function addInfluence(map, bone, weight) {
@@ -628,46 +654,78 @@ function clampField(value) {
 
 // Skin-toned toon material that paints the shirt and pants onto the body, with
 // crisp edges and a thin line along each hem.
-function clothedSkinMaterial(a) {
+// With `decay` (see decayModel.js), the skin rots in patches, the clothes are
+// torn (ragged hems, rips, and torn away round wounds), and wounds' cut faces
+// are raw flesh with blood spattered round them.
+function clothedSkinMaterial(a, decay = null) {
   const mat = toon('#ffffff', SKIN_TOON_STEPS);
   const uniforms = {
     skinColor: { value: new THREE.Color(a.skinColor) },
     shirtColor: { value: new THREE.Color(a.shirtColor) },
     pantsColor: { value: new THREE.Color(a.pantsColor) },
     lineColor: { value: new THREE.Color(LINE_COLOR) },
+    decaySeed: { value: decay?.seed ?? 0 },
+    fleshColor: { value: DECAY_COLORS.flesh },
+    bloodColor: { value: DECAY_COLORS.blood },
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = `attribute float shirtField;
 attribute float pantsField;
+attribute float woundField;
 varying float vShirt;
 varying float vPants;
+varying float vWound;
+varying vec3 vDecayPos;
 ${shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
   vShirt = shirtField;
-  vPants = pantsField;`)}`;
+  vPants = pantsField;
+  vWound = woundField;
+  vDecayPos = position;`)}`;
     shader.fragmentShader = `uniform vec3 skinColor;
 uniform vec3 shirtColor;
 uniform vec3 pantsColor;
 uniform vec3 lineColor;
+uniform float decaySeed;
+uniform vec3 fleshColor;
+uniform vec3 bloodColor;
 varying float vShirt;
 varying float vPants;
+varying float vWound;
+varying vec3 vDecayPos;
+${decay ? DECAY_GLSL : ''}
 ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
   {
+    float shirtV = vShirt, pantsV = vPants;
+    vec3 skin = skinColor;
+${decay ? `
+    // Torn clothes: ragged hems, rips, and torn away round wounds.
+    float ragged = (decayNoise(vDecayPos * 45.0 + decaySeed) - 0.5) * 0.03;
+    float torn = min(-decayRip(vDecayPos, decaySeed) * 0.5, vWound - 0.035);
+    shirtV = min(shirtV + ragged, torn);
+    pantsV = min(pantsV + ragged, torn);
+    skin = decaySkin(skin, vDecayPos, decaySeed);` : ''}
     // Edges are measured in pixels, so they stay crisp at any distance. The
     // hem lines are the same thickness on the body as the outlines, thinning
     // with distance like them (but never quite vanishing).
-    float shirtW = fwidth(vShirt) + 1e-6, pantsW = fwidth(vPants) + 1e-6;
-    float shirt = smoothstep(-0.5, 0.5, vShirt / shirtW);
-    float pants = smoothstep(-0.5, 0.5, vPants / pantsW) * (1.0 - shirt);
-    vec3 cloth = mix(mix(skinColor, pantsColor, pants), shirtColor, shirt);
+    float shirtW = fwidth(shirtV) + 1e-6, pantsW = fwidth(pantsV) + 1e-6;
+    float shirt = smoothstep(-0.5, 0.5, shirtV / shirtW);
+    float pants = smoothstep(-0.5, 0.5, pantsV / pantsW) * (1.0 - shirt);
+    vec3 cloth = mix(mix(skin, pantsColor, pants), shirtColor, shirt);
     float halfLine = ${(OUTLINE_THICKNESS / 2).toFixed(5)};
-    float shirtLine = 1.0 - smoothstep(-0.5, 0.5, (abs(vShirt) - max(halfLine, shirtW * 0.3)) / shirtW);
-    float pantsLine = 1.0 - smoothstep(-0.5, 0.5, (abs(vPants) - max(halfLine, pantsW * 0.3)) / pantsW);
+    float shirtLine = 1.0 - smoothstep(-0.5, 0.5, (abs(shirtV) - max(halfLine, shirtW * 0.3)) / shirtW);
+    float pantsLine = 1.0 - smoothstep(-0.5, 0.5, (abs(pantsV) - max(halfLine, pantsW * 0.3)) / pantsW);
     float edge = max(shirtLine, pantsLine * (1.0 - shirt));
+${decay ? `
+    // Wounds: raw flesh on the cut faces, and blood spattered round them.
+    cloth = mix(cloth, bloodColor, decaySpatter(vDecayPos, vWound, decaySeed));
+    float cutFace = 1.0 - smoothstep(0.0015, 0.004, vWound);
+    cloth = mix(cloth, fleshColor, cutFace);
+    edge *= 1.0 - cutFace;` : ''}
     diffuseColor.rgb *= mix(cloth, lineColor, edge);
   }`)}`;
   };
-  mat.customProgramCacheKey = () => 'clothed-skin';
+  mat.customProgramCacheKey = () => (decay ? 'clothed-skin-decay' : 'clothed-skin');
   return mat;
 }
 
@@ -935,7 +993,7 @@ function forearm(w, sign) {
 
 // --- Head and face -------------------------------------------------------
 
-function buildHead(head, a, mats) {
+function buildHead(head, a, mats, decay = null) {
   const R = BODY.headRadius;
   const centre = new THREE.Group(); // centre of the skull
   centre.position.y = 0.85 * R;
@@ -943,8 +1001,9 @@ function buildHead(head, a, mats) {
 
   // The sculpted head (see headModel.js), with eyebrows and blush coloured on.
   const brow = new THREE.Color(a.hairColor).multiplyScalar(0.7);
-  const skin = addFaceColour(toon(a.skinColor, SKIN_TOON_STEPS), brow, R, a.eyeSize, { blush: a.blush, freckles: a.freckles });
-  const headMesh = new THREE.Mesh(headGeometry(a.eyeSize, R, a.bodyType === 'male' ? 1 : 0), skin);
+  let skin = addFaceColour(toon(a.skinColor, SKIN_TOON_STEPS), brow, R, a.eyeSize, { blush: a.blush, freckles: a.freckles });
+  if (decay) skin = addRot(skin, decay.seed + 7.7);
+  const headMesh = new THREE.Mesh(headGeometry(a.eyeSize, R, a.bodyType === 'male' ? 1 : 0, decay ? EYELID_DROOP : 0), skin);
   headMesh.castShadow = true;
   // Its own outline, faded out around the eyes (the thin folds of the eyelids
   // would otherwise let it show through as specks).
@@ -956,7 +1015,7 @@ function buildHead(head, a, mats) {
   for (const { sign, centre: [x, y, z] } of eyes.eyes) {
     const eyeball = new THREE.Mesh(
       new THREE.SphereGeometry(eyes.radius * R, 32, 24),
-      eyeMaterial(toon('#ffffff', SKIN_TOON_STEPS), a.eyeColor, sign),
+      eyeMaterial(toon('#ffffff', SKIN_TOON_STEPS), a.eyeColor, sign, { glints: !decay }),
     );
     eyeball.position.set(x * R, y * R, z * R);
     eyeball.rotation.y = -sign * eyes.yaw; // turned outwards, wrapping round the head

@@ -261,3 +261,9 @@ the voice track has a delay, please make the sound start immediately upon the bu
 please run the game so I can test it myself
 
 please commit the changes
+
+now lets make a basic enemy so we can begin the combat system. This is a zombie. Make it be a random character design, built out of elements from the character creator, but the skin colors are much more gray than they would otherwise be, and they have green rotting patches, various rips in their clothes, and a few parts where bone is visible (the bones should be off-white, slightly yellowed. The stumps where the normal sculpt is cut off to reveal bone should be red, with some plattering near the cut off)
+
+please ensure that the rips in the zombie's clothing never goes through the crotch area, as it did do that in one of your example renders. Also please remove the highlight from the zombie's eyes, and make their upper eyelids droopy as though they aren't all the way open
+
+please commit the changes

@@ -71,9 +71,9 @@ export class GameRenderer {
   // A non-player character. Returns the NPC's model, which the game passes
   // back to updateNpc and animateNpc.
   // yaw: the direction they face (same convention as the player).
-  // pose: how they stand when still (see characterModel.js).
-  addNpc({ appearance, position, yaw, pose }) {
-    const model = new CharacterModel(appearance, { pose });
+  // pose: how they stand when still; decay: for the undead (see characterModel.js).
+  addNpc({ appearance, position, yaw, pose, decay }) {
+    const model = new CharacterModel(appearance, { pose, decay });
     this.scene.add(model.root);
     this.updateNpc(model, position, yaw);
     return model;

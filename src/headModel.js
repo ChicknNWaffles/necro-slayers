@@ -95,18 +95,22 @@ export function eyeLocal(ax, y, z) {
 // [x, y, how far out from the eyeball's centre, thickness]. It follows the edge
 // of the upper lid at an even thickness right to the outer corner of the eye...
 // m: 0 female, 1 male (thinner lashes with no wing, following the squarer lid).
-function lashPath(m) {
-  const { upper } = lidCurve(m);
+// droop: see lidCurve.
+function lashPath(m, droop = 0) {
+  const { top, upper } = lidCurve(m, droop);
   const thick = 1 - 0.55 * m;
   return Array.from({ length: 9 }, (_, i) => {
     const x = -1.1 + (2.3 * i) / 8;
-    return [x, 0.52 - upper * x * x - 0.05, 1.32, (i === 0 ? 0.06 : 0.12) * thick];
+    return [x, top - upper * x * x - 0.05, 1.32, (i === 0 ? 0.06 : 0.12) * thick];
   });
 }
 
-// How strongly the upper and lower lid edges curve (lower = flatter, squarer eye).
-function lidCurve(m) {
-  return { upper: 0.32 - 0.15 * m, lower: 0.3 - 0.13 * m };
+// The upper lid's edge (its height in the middle, in eye radii) and how
+// strongly the upper and lower lid edges curve (lower = flatter, squarer eye).
+// droop (0-1): how far the upper lid hangs down over the eye, as if it isn't
+// quite open (it flattens a little as it comes down).
+function lidCurve(m, droop = 0) {
+  return { top: 0.52 - 0.55 * droop, upper: (0.32 - 0.15 * m) * (1 - 0.5 * droop), lower: 0.3 - 0.13 * m };
 }
 // ...where the wing starts: flicking up, out and tilted back round the side of
 // the head -- [offset x, y, z from the corner, thickness].
@@ -121,10 +125,10 @@ function lashPoint([x, y, out, t], r) {
 
 const lashCache = new Map(); // (these are needed for every point sampled round the eyes)
 
-function lashPoints(r, m) {
-  const key = `${r}:${m}`;
+function lashPoints(r, m, droop) {
+  const key = `${r}:${m}:${droop}`;
   if (lashCache.has(key)) return lashCache.get(key);
-  const points = lashPath(m).map((q) => lashPoint(q, r));
+  const points = lashPath(m, droop).map((q) => lashPoint(q, r));
   const end = points[points.length - 1].p;
   if (m < 0.5) for (const [dx, dy, dz, t] of LASH_WING) {
     points.push({ p: [end[0] + dx * r, end[1] + dy * r, end[2] + dz * r], t: t * r });
@@ -133,8 +137,8 @@ function lashPoints(r, m) {
   return points;
 }
 
-function lashDistance(lx, ly, lz, r, m = 0) {
-  const points = lashPoints(r, m);
+function lashDistance(lx, ly, lz, r, m = 0, droop = 0) {
+  const points = lashPoints(r, m, droop);
   let d = Infinity;
   for (let i = 1; i < points.length; i++) {
     d = Math.min(d, capsule(lx, ly, lz, points[i - 1].p, points[i].p, points[i - 1].t, points[i].t));
@@ -142,7 +146,7 @@ function lashDistance(lx, ly, lz, r, m = 0) {
   return d;
 }
 
-function eyeRegion(ax, y, z, es, m = 0) {
+function eyeRegion(ax, y, z, es, m = 0, droop = 0) {
   const r = EYE.radius * es;
   const [lx, ly, lz] = eyeLocal(ax, y, z);
   // Socket: carved into the face in front of the eyeball.
@@ -153,13 +157,13 @@ function eyeRegion(ax, y, z, es, m = 0) {
   y = ly;
   const shell = Math.abs(Math.hypot(lx, ly, lz) - r * 1.08) - 0.05;
   const front = lz + 0.35 * r; // only on the front of the eyeball
-  const curve = lidCurve(m);
-  const upperEdge = cy + r * (0.52 - curve.upper * dx * dx);
+  const curve = lidCurve(m, droop);
+  const upperEdge = cy + r * (curve.top - curve.upper * dx * dx);
   const lowerEdge = cy - r * (0.74 - curve.lower * dx * dx); // low: a tall, stylized eye
   // (Intersections are rounded, so the lid edges are smooth rather than ragged.)
   const upperLid = smoothIntersect(smoothIntersect(shell, upperEdge - y, 0.03), front, 0.05);
   const lowerLid = smoothIntersect(smoothIntersect(shell, y - lowerEdge, 0.03), front, 0.05);
-  return { socket, lids: smoothUnion(upperLid, lowerLid, 0.07), lash: lashDistance(lx, ly, lz, r, m) };
+  return { socket, lids: smoothUnion(upperLid, lowerLid, 0.07), lash: lashDistance(lx, ly, lz, r, m, droop) };
 }
 
 function noseDistance(ax, y, z) {
@@ -218,10 +222,10 @@ function earDistance(ax, y, z) {
   return d;
 }
 
-function headDistance(x, y, z, es, m = 0) {
+function headDistance(x, y, z, es, m = 0, droop = 0) {
   const ax = Math.abs(x);
   let d = skullDistance(ax, y, z, m);
-  const eye = eyeRegion(ax, y, z, es, m);
+  const eye = eyeRegion(ax, y, z, es, m, droop);
   d = smoothSubtract(d, eye.socket, 0.08);
   d = smoothUnion(d, eye.lids, 0.09); // (wide, so the thin lid corners are filled in)
   d = smoothUnion(d, eye.lash, 0.012);
@@ -241,18 +245,19 @@ function headDistance(x, y, z, es, m = 0) {
 
 const cache = new Map(); // eye size -> geometry
 
-// The head's skin mesh, scaled to head radius R.
-export function headGeometry(eyeSize, R, m = 0) {
-  const key = eyeSize.toFixed(3) + ':' + R + ':' + m;
+// The head's skin mesh, scaled to head radius R. m: body type (0 female, 1
+// male); droop: how far the upper eyelids hang down (0-1, see lidCurve).
+export function headGeometry(eyeSize, R, m = 0, droop = 0) {
+  const key = eyeSize.toFixed(3) + ':' + R + ':' + m + ':' + droop;
   let geometry = cache.get(key);
   if (!geometry) {
-    geometry = meshFromDistance((x, y, z) => headDistance(x, y, z, eyeSize, m), BOUNDS, DETAIL);
+    geometry = meshFromDistance((x, y, z) => headDistance(x, y, z, eyeSize, m, droop), BOUNDS, DETAIL);
     const pos = geometry.attributes.position;
     const lash = new Float32Array(pos.count);
     const r = EYE.radius * eyeSize;
     for (let i = 0; i < pos.count; i++) {
       const [lx, ly, lz] = eyeLocal(Math.abs(pos.getX(i)), pos.getY(i), pos.getZ(i));
-      lash[i] = 1 - Math.min(Math.max(lashDistance(lx, ly, lz, r, m) / 0.012, 0), 1);
+      lash[i] = 1 - Math.min(Math.max(lashDistance(lx, ly, lz, r, m, droop) / 0.012, 0), 1);
     }
     geometry.setAttribute('lashMask', new THREE.Float32BufferAttribute(lash, 1));
     geometry.scale(R, R, R);
@@ -336,7 +341,8 @@ ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fr
 
 // Colours an eyeball material (a toon material in white): a large anime iris,
 // darker at the top, with a pupil and highlights, facing forwards.
-export function eyeMaterial(material, eyeColor, sign) {
+// glints: whether the eyes have the bright highlights that make them look alive.
+export function eyeMaterial(material, eyeColor, sign, { glints = true } = {}) {
   const iris = new THREE.Color(eyeColor);
   const uniforms = {
     irisColor: { value: iris },
@@ -372,11 +378,11 @@ ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fr
     vec3 col = mix(vec3(1.0), irisCol, irisMask);
     float glint = 1.0 - smoothstep(0.08, 0.1, length(q - vec2(-0.18, 0.22)));
     float glint2 = 1.0 - smoothstep(0.04, 0.055, length(q - vec2(0.2, -0.25)));
-    col = mix(col, vec3(1.0), max(glint, glint2) * irisMask);
+    col = mix(col, vec3(1.0), max(glint, glint2) * irisMask * ${glints ? '1.0' : '0.0'});
     diffuseColor.rgb = col;
   }`)}`;
   };
-  material.customProgramCacheKey = () => 'eyeball' + sign;
+  material.customProgramCacheKey = () => `eyeball${sign}${glints ? '' : '-dull'}`;
   return material;
 }
 
