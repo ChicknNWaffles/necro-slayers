@@ -13,6 +13,7 @@ import { createHand } from './handModel.js';
 import { createFoot } from './footModel.js';
 import { CharacterAnimator } from './characterAnimation.js';
 import { ShieldEffect } from './shieldEffect.js';
+import { createWeapon } from './weaponModel.js';
 import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 import { skirtGeometry, sleeveGeometry, SkirtMotion } from './clothingModel.js';
 import { braidGeometry } from './braidModel.js';
@@ -52,13 +53,16 @@ export class CharacterModel {
   // pose: how the character stands (see POSES), e.g. 'handsFolded' for an NPC.
   // decay: makes the character undead -- rot, torn clothes and wounds (see decayModel.js).
   // caster: whether they cast spells (their right hand can glow, see handGlow).
-  constructor(appearance, { pose = 'stand', decay = null, caster = false } = {}) {
+  // weapons: the weapons they carry, e.g. ['sword', 'shield'] (see WEAPON_GRIP).
+  constructor(appearance, { pose = 'stand', decay = null, caster = false, weapons = [] } = {}) {
     this.root = new THREE.Group(); // add this to the scene; its origin is at the feet
     this.body = null;
     this.joints = {};
-    this.pose = pose;
+    // (Armed, they stand ready with their weapons -- see POSES.)
+    this.pose = pose === 'stand' && weapons.length ? weaponStance(weapons) ?? pose : pose;
     this.decay = decay;
     this.caster = caster;
+    this.weaponNames = weapons;
     this.animator = new CharacterAnimator();
     this.setAppearance(appearance);
   }
@@ -68,6 +72,16 @@ export class CharacterModel {
   animate(state, dt) {
     this.animator.update(this.joints, state, dt, this.height, this.armPose);
     openMouth(this.mouth, this.animator.mouthOpen);
+    // A weapon in the right hand turns in the grip as a gesture swings it.
+    for (const weapon of Object.values(this.weapons)) {
+      const { grip } = this.animator;
+      weapon.quaternion.setFromEuler(gripEuler.set(...weapon.userData.grip.rotation));
+      if (!grip || weapon.userData.grip.joint !== 'rightElbow') continue;
+      gripA.setFromEuler(gripEuler.set(...grip.from));
+      gripB.setFromEuler(gripEuler.set(...grip.to));
+      gripA.slerp(gripB, grip.f);
+      weapon.quaternion.slerp(gripA, grip.weight);
+    }
     for (const side of ['left', 'right']) {
       const wrist = this.joints[`${side}Wrist`];
       wrist.userData.bend.set(wrist.rotation.x, wrist.rotation.y, wrist.rotation.z);
@@ -104,6 +118,11 @@ export class CharacterModel {
     return this.joints.rightElbow.localToWorld(target.set(0, -BODY.forearmLength - 0.09, 0));
   }
 
+  // Raise (or lower) a shield to block.
+  setBlocking(blocking) {
+    this.animator.blocking = blocking;
+  }
+
   // React to being hit.
   flinch() {
     this.animator.flinch();
@@ -130,6 +149,16 @@ export class CharacterModel {
     this.sleeves = sleeves;
     this.onSkirt = onSkirt;
     this.glow = this.caster ? handGlow(joints) : null;
+    this.weapons = {};
+    for (const name of this.weaponNames) {
+      const grip = WEAPON_GRIP[name];
+      const weapon = createWeapon(name, { part, toon });
+      weapon.position.set(...grip.position);
+      weapon.rotation.set(...grip.rotation);
+      weapon.userData.grip = grip;
+      joints[grip.joint].add(weapon);
+      this.weapons[name] = weapon;
+    }
     this.build = appearance.build;
     this.height = appearance.height;
     this.root.add(body);
@@ -158,7 +187,30 @@ const POSES = {
   handsFolded: { shoulder: [0.25, 0.65, -0.05], elbow: [1.5, 0.8, 0] },
   // A zombie's arms reaching out in front, kept up even while walking.
   zombie: { shoulder: [1.3, 0, 0.02], elbow: [0.35, 0, 0], whileMoving: true },
+  // Armed stances (see WEAPON_GRIP), kept while walking, with the arms
+  // swinging less (armSwing). Poses can differ for each arm ('right', 'left').
+  // Sword and shield: the sword held up in front, ready; the shield carried
+  // forward on the left arm.
+  swordAndShield: {
+    right: { shoulder: [0.35, 0, 0.02], elbow: [0.45, 0, 0] },
+    left: { shoulder: [0.3, 0, 0], elbow: [0.9, 0, 0] },
+    whileMoving: true, armSwing: 0.35,
+  },
+  // Halberd: held in both hands, diagonally across the body, the head up by
+  // the left shoulder.
+  halberd: {
+    right: { shoulder: [0.4, 0, 0], elbow: [1.0, 0, 0] },
+    left: { shoulder: [0.7, 0.5, -0.25], elbow: [1.2, 0, 0] },
+    whileMoving: true, armSwing: 0,
+  },
 };
+
+// The stance for a set of weapons.
+export function weaponStance(weapons) {
+  if (weapons.includes('halberd')) return 'halberd';
+  if (weapons.includes('sword') || weapons.includes('shield')) return 'swordAndShield';
+  return null;
+}
 
 // How far (in units) each join between parts is smoothed over.
 const BLEND = { shoulder: 0.045, elbow: 0.01, hip: 0.03, knee: 0.01 };
@@ -362,18 +414,20 @@ function buildBody(a, poseName = 'stand', decay = null) {
   // Bend the sculpt into the standing pose.
   // The arms' rotations in the chosen pose ('rest') and hanging at the sides
   // ('moving'): the animations move between them (see characterAnimation.js).
-  const armPose = { rest: {}, moving: {} };
+  const armPose = { rest: {}, moving: {}, swing: 1 };
   const setArms = (which) => {
     for (const name of Object.keys(armPose[which])) joints[name].rotation.set(...armPose[which][name]);
     body.updateMatrixWorld(true);
   };
   const pose = POSES[poseName] ?? POSES.stand;
+  armPose.swing = pose.armSwing ?? 1;
   for (const side of ['left', 'right']) {
     const sign = side === 'left' ? -1 : 1;
     const turn = ([x, y, z] = [0, 0, 0], base = 0) => [x, sign * y, sign * (z + base)];
     const armsOut = outfit.skirt ? SKIRT_ARM_SPREAD : STAND_POSE.shoulder;
-    armPose.rest[`${side}Shoulder`] = turn(pose.shoulder, armsOut);
-    armPose.rest[`${side}Elbow`] = turn(pose.elbow);
+    const arm = pose[side] ?? pose;
+    armPose.rest[`${side}Shoulder`] = turn(arm.shoulder, armsOut);
+    armPose.rest[`${side}Elbow`] = turn(arm.elbow);
     armPose.moving[`${side}Shoulder`] = pose.whileMoving ? armPose.rest[`${side}Shoulder`] : turn(undefined, armsOut);
     armPose.moving[`${side}Elbow`] = pose.whileMoving ? armPose.rest[`${side}Elbow`] : turn();
     joints[`${side}Hip`].rotation.z = sign * STAND_POSE.hip;
@@ -497,6 +551,20 @@ function legSpheres(joints, build) {
   sphereList.length = n;
   return sphereList;
 }
+
+const gripEuler = new THREE.Euler(), gripA = new THREE.Quaternion(), gripB = new THREE.Quaternion();
+
+// Where each weapon is held: by which joint, and where and how it sits in
+// that joint's frame (see weaponModel.js for the weapons' own frames). The
+// sword and halberd are gripped in the right hand; the shield is strapped to
+// the outside of the left forearm.
+// (The halberd is held tilted, so that in its stance it lies across the
+// body; the shield is strapped across the forearm, as for blocking.)
+const WEAPON_GRIP = {
+  sword: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, -0.005], rotation: [-0.3, 0, 0] },
+  halberd: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, 0], rotation: [-1.0, 0, 0.6] },
+  shield: { joint: 'leftElbow', position: [-0.05, -0.14, 0], rotation: [-1.89, 0, 0] },
+};
 
 // A glow round the right hand, for casting spells: a bright core, a soft halo
 // and a warm light that lights up the character (and anything near). Always

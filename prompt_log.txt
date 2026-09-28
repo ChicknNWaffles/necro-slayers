@@ -305,3 +305,17 @@ Last cleric spell, it's called "Cleansing Light". It causes a beam of light to g
 please run the game so I can test it. If you can make Evalyn stand down for this time only so that I can test the player's spells without the zombie dying too fast
 
 please commit the changes
+
+Now we create another class, "Fighter". We'll have another npc with this later, but it's also a class the player can have. There are 3 weapon options for the fighter, sword, shield, and halberd. The sword and shield can be wielded together but the halberd requires two hands and thus can't be wielded with anything else. The sword has a stab attack and a slash attack. The shield can be used to block attacks, and also for a shield block attack. The halberd can has a slash attack using the axe side and a bludgeoning attack with the hammer side. The bludgeoning attack does knockback. If the player chooses fighter, they get to choose 2 of these weapons, but the halberd counts for 2 if they pick it. Toggling between weapons works the same as switching between spells
+
+addendum I meant shield bash attack as the second ability of the shield. my previous prompt contained a typo
+
+I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.
+
+please run the game so I can test the new weapons
+
+please make it so that instead of using click and e for the abilities, you switch between the abilities with the numbers as with the spells. The titles of the abilities can reflect the weapon used either directly or by implication. "Slash" and "Stab" imply sword, as "Block" implies shield. "Shield Bash" can be what that is called
+
+please run the game so I can test the Halberd now. Make sure to switch it so that the player has the halberd
+
+please commit the changes

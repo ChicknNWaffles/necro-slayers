@@ -85,6 +85,22 @@ export const HEAL_IMPACT = 0.75;
 export const SCRATCH_IMPACT = 0.36;
 export const BITE_IMPACT = 0.5;
 
+// Fighting moves (see game.js). Keyframes are as for any gesture; `grip` is
+// how the weapon in the right hand sits in the grip ([time, [x, y, z]] keys:
+// its full rotation in the hand -- see WEAPON_GRIP in characterModel.js --
+// blended smoothly as a turn, not axis by axis),
+// `twist` how far the body turns (radians, + to the left), and the left-arm
+// columns carry the shield or the halberd's other hand.
+export const STAB_IMPACT = 0.3;
+export const SLASH_IMPACT = 0.38;
+export const BASH_IMPACT = 0.3;
+export const AXE_IMPACT = 0.5;
+export const HAMMER_IMPACT = 0.62;
+const SWORD_ARM = [[0.35, 0, 0.12], [0.45, 0, 0]];            // (the sword-and-shield stance, right arm)
+const SHIELD_ARM = [[0.3, 0, 0.1], [0.9, 0, 0]];              // (...and left arm)
+const HALBERD_ARMS = [[0.4, 0, 0.1], [1.0, 0, 0], [0.7, 0.5, -0.15], [1.2, 0, 0]];
+export const BLOCK_ARM = [[0.8, 1.57, 0], [1.9, -0.7, 0]];    // the shield raised in front of the chest
+
 // Gestures can also have tracks of [time, value] keys for:
 //   glow: how brightly the right hand glows (0-1), e.g. for a spell
 //   lean: how far the body leans forwards (radians)
@@ -156,6 +172,88 @@ Object.assign(GESTURES, {
     ],
     glow: [[0, 0], [0.3, 0.4], [0.7, 0.7], [1.15, 0.6], [1.45, 0]], // (softer, so close to the body)
     wrist: [[0, [0, 0, 0]], [0.45, [0, 0, -0.7]], [1.15, [0, 0, -0.7]], [1.5, [0, 0, 0]]],
+  },
+  // Stab (sword): the arm draws back, the blade levelling, then drives
+  // straight forward (at STAB_IMPACT), leaning into it.
+  stab: {
+    duration: 0.65,
+    ease: [0.08, 0.2],
+    keys: [
+      [0.0, ...SWORD_ARM, [0, 0]],
+      [0.16, [0.7, 0, 0.3], [1.9, 0, 0], [0, 0]],
+      [0.3, [1.5, 0, 0.05], [0.05, 0, 0], [0.05, 0]],
+      [0.42, [1.45, 0, 0.05], [0.1, 0, 0], [0.05, 0]],
+      [0.65, ...SWORD_ARM, [0, 0]],
+    ],
+    grip: [[0, [-0.3, 0, 0]], [0.16, [-1.6, 0, 0]], [0.3, [-1.65, 0, 0]], [0.42, [-1.65, 0, 0]], [0.65, [-0.3, 0, 0]]],
+    lean: [[0, 0], [0.16, -0.05], [0.3, 0.15], [0.45, 0.12], [0.65, 0]],
+  },
+  // Slash (sword): the sword raised high by the right shoulder, then cut down
+  // and across the front to the left (at SLASH_IMPACT), the body turning with it.
+  slash: {
+    duration: 0.75,
+    ease: [0.08, 0.22],
+    keys: [
+      [0.0, ...SWORD_ARM, [0, 0]],
+      [0.2, [2.4, 0, 0.7], [1.3, 0, 0], [-0.05, 0.1]],
+      [0.38, [1.3, -0.5, -0.2], [0.2, 0, 0], [0.05, -0.1]],
+      [0.5, [0.8, -0.7, -0.35], [0.35, 0, 0], [0.05, -0.15]],
+      [0.75, ...SWORD_ARM, [0, 0]],
+    ],
+    grip: [[0, [-0.3, 0, 0]], [0.2, [-0.7, 0, 0]], [0.38, [-1.5, 0, 0]], [0.5, [-1.3, 0, 0]], [0.75, [-0.3, 0, 0]]],
+    twist: [[0, 0], [0.2, -0.35], [0.38, 0.25], [0.5, 0.35], [0.75, 0]],
+    lean: [[0, 0], [0.38, 0.12], [0.75, 0]],
+  },
+  // Shield bash: the shield brought up in front, then shoved forward hard
+  // (at BASH_IMPACT), the body driving in behind it.
+  bash: {
+    duration: 0.7,
+    ease: [0.08, 0.22],
+    keys: [
+      [0.0, ...SWORD_ARM, [0, 0], ...SHIELD_ARM],
+      [0.18, ...SWORD_ARM, [0, 0], [0.7, 1.57, 0], [2.1, -0.7, 0]],
+      [0.3, ...SWORD_ARM, [0.05, 0], [1.35, 1.57, 0], [1.1, -0.7, 0]],
+      [0.42, ...SWORD_ARM, [0.05, 0], [1.3, 1.57, 0], [1.2, -0.7, 0]],
+      [0.7, ...SWORD_ARM, [0, 0], ...SHIELD_ARM],
+    ],
+    lean: [[0, 0], [0.18, -0.08], [0.3, 0.22], [0.45, 0.18], [0.7, 0]],
+    twist: [[0, 0], [0.18, 0.25], [0.3, -0.1], [0.7, 0]],
+  },
+  // Axe slash (halberd): wound back over the right shoulder, the body turned
+  // away, then swept round and across in a wide, flat arc (at AXE_IMPACT).
+  axeSlash: {
+    duration: 1.0,
+    ease: [0.1, 0.25],
+    keys: [
+      [0.0, ...HALBERD_ARMS.slice(0, 2), [0, 0], ...HALBERD_ARMS.slice(2)],
+      [0.3, [1.2, 0.6, 0.6], [1.2, 0, 0], [0, 0.2], [1.3, 0.6, -0.3], [1.4, 0, 0]],
+      [0.5, [1.45, -0.3, 0.1], [0.4, 0, 0], [0.05, -0.1], [1.4, -0.4, 0.3], [0.5, 0, 0]],
+      [0.66, [1.3, -0.6, -0.1], [0.5, 0, 0], [0.05, -0.2], [1.2, -0.7, 0.4], [0.6, 0, 0]],
+      [1.0, ...HALBERD_ARMS.slice(0, 2), [0, 0], ...HALBERD_ARMS.slice(2)],
+    ],
+    // (Grip angles worked out so the shaft points back over the right
+    // shoulder, then straight ahead at the hit, then off to the left, with the
+    // blade's edge leading.)
+    grip: [[0, [-1.0, 0, 0.6]], [0.3, [-2.11, 0.27, -2.0]], [0.5, [-0.03, 1.86, 3.14]], [0.66, [2.15, 0.75, 0.63]], [1.0, [-1.0, 0, 0.6]]],
+    twist: [[0, 0], [0.3, -0.7], [0.5, 0.2], [0.66, 0.55], [1.0, 0]],
+    lean: [[0, 0], [0.5, 0.1], [1.0, 0]],
+  },
+  // Hammer blow (halberd): heaved up high overhead, the head turned so the
+  // hammer faces forward, then brought crashing down in front (at HAMMER_IMPACT).
+  hammer: {
+    duration: 1.15,
+    ease: [0.1, 0.25],
+    keys: [
+      [0.0, ...HALBERD_ARMS.slice(0, 2), [0, 0], ...HALBERD_ARMS.slice(2)],
+      [0.38, [2.7, 0, 0.2], [0.8, 0, 0], [-0.25, 0], [2.6, 0.1, -0.1], [0.7, 0, 0]],
+      [0.62, [1.1, 0, 0.1], [0.3, 0, 0], [0.2, 0], [1.1, 0.2, -0.1], [0.4, 0, 0]],
+      [0.8, [0.9, 0, 0.1], [0.3, 0, 0], [0.2, 0], [0.9, 0.2, -0.1], [0.4, 0, 0]],
+      [1.15, ...HALBERD_ARMS.slice(0, 2), [0, 0], ...HALBERD_ARMS.slice(2)],
+    ],
+    // (The shaft up and back overhead, then down in front at the hit, the
+    // hammer's face leading.)
+    grip: [[0, [-1.0, 0, 0.6]], [0.38, [0.24, -0.17, 3.04]], [0.62, [-2.88, -3.09, -0.08]], [0.8, [-2.88, -3.09, -0.08]], [1.15, [-1.0, 0, 0.6]]],
+    lean: [[0, 0], [0.38, -0.12], [0.62, 0.3], [0.8, 0.28], [1.15, 0]],
   },
   // Casting a beam (Cleansing Light): the hand draws back to the shoulder,
   // lighting up, then thrusts straight out, palm forwards and fingers up, and
@@ -260,8 +358,10 @@ export class CharacterAnimator {
       joints[`${side}Hip`].rotation.x = mix((P) => P.hipSwing * Math.sin(p) + (P.hipForward ?? 0));
       joints[`${side}Knee`].rotation.x = -mix((P) => P.kneeBase + P.kneeBend * forwardSwing ** 1.5);
       // Arms swing opposite to the leg on the same side.
-      joints[`${side}Shoulder`].rotation.x += -mix((P) => P.shoulderSwing * Math.sin(p) + (P.shoulderBack ?? 0));
-      joints[`${side}Elbow`].rotation.x += mix((P) => P.elbowBase + P.elbowSwing * Math.max(-Math.sin(p), 0));
+      // (Less, or not at all, with weapons in hand -- see POSES in characterModel.js.)
+      const swing = pose?.swing ?? 1;
+      joints[`${side}Shoulder`].rotation.x += -swing * mix((P) => P.shoulderSwing * Math.sin(p) + (P.shoulderBack ?? 0));
+      joints[`${side}Elbow`].rotation.x += swing * mix((P) => P.elbowBase + P.elbowSwing * Math.max(-Math.sin(p), 0));
     }
 
     // The body bobs twice per cycle, leans, and sways slightly side to side.
@@ -273,9 +373,24 @@ export class CharacterAnimator {
     joints.head.rotation.x = mix((P) => P.lean * 0.6); // keeps the eyes level
     joints.head.rotation.y = mix((P) => P.look ?? 0); // looking back over the shoulder
 
-    this.jump(joints, { onGround, verticalSpeed }, dt);
+    this.jump(joints, { onGround, verticalSpeed }, dt, pose?.swing ?? 1);
+    this.block(joints, dt);
     this.playGesture(joints, dt);
     this.reactions(joints, dt);
+  }
+
+  // Blocking: the shield arm comes up in front of the chest while `blocking`
+  // is set, and down again after.
+  block(joints, dt) {
+    this.blockAmount = (this.blockAmount ?? 0) + ((this.blocking ? 1 : 0) - (this.blockAmount ?? 0)) * (1 - Math.exp(-18 * dt));
+    const b = smoothstep(Math.min(Math.max(this.blockAmount, 0), 1));
+    if (b < 0.001) return;
+    const [[sx, sy, sz], [ex, ey, ez]] = BLOCK_ARM;
+    const blend = (rotation, [x, y, z]) => rotation.set(
+      rotation.x + (x - rotation.x) * b, rotation.y + (y - rotation.y) * b, rotation.z + (z - rotation.z) * b,
+    );
+    blend(joints.leftShoulder.rotation, [sx, -sy, -sz]); // (mirrored for the left arm)
+    blend(joints.leftElbow.rotation, [ex, -ey, -ez]);
   }
 
   // Start a gesture (see GESTURES), replacing any that is playing.
@@ -320,6 +435,7 @@ export class CharacterAnimator {
     this.mouthOpen = 0; // (how open the mouth is, 0-1)
     this.handGlow = 0;  // (how brightly the right hand glows, 0-1)
     joints.rightWrist?.rotation.set(0, 0, 0);
+    this.grip = null; // (how the weapon in the right hand is turned in the grip, if a gesture turns it)
     if (!this.current) return;
     const { gesture } = this.current;
     const t = (this.current.time += dt);
@@ -351,6 +467,15 @@ export class CharacterAnimator {
     joints.head.rotation.x += head[0] * w;
     joints.head.rotation.y += head[1] * w;
     if (gesture.lean) joints.root.rotation.x -= track(gesture.lean, t) * w;
+    if (gesture.twist) joints.root.rotation.y += track(gesture.twist, t) * w;
+    if (gesture.grip) {
+      // (Which two keys it's between, how far, and how much of the gesture shows.)
+      const keysG = gesture.grip;
+      let g = 1;
+      while (g < keysG.length - 1 && keysG[g][0] < t) g++;
+      const f = smoothstep(Math.min(Math.max((t - keysG[g - 1][0]) / (keysG[g][0] - keysG[g - 1][0]), 0), 1));
+      this.grip = { from: keysG[g - 1][1], to: keysG[g][1], f, weight: w };
+    }
     if (gesture.wrist && joints.rightWrist) {
       const keysOf = (axis) => gesture.wrist.map(([time, v]) => [time, v[axis]]);
       joints.rightWrist.rotation.set(track(keysOf(0), t) * w, track(keysOf(1), t) * w, track(keysOf(2), t) * w);
@@ -361,7 +486,7 @@ export class CharacterAnimator {
   // out in the air). Rising: the lead knee tucks up, the other leg trails and
   // the arms swing up. Falling: the legs reach down for the ground and the
   // arms drop out. Landing: a quick crouch.
-  jump(joints, { onGround, verticalSpeed }, dt) {
+  jump(joints, { onGround, verticalSpeed }, dt, armSwing = 1) {
     if (onGround && !this.wasOnGround) this.landing = 1;
     this.wasOnGround = onGround;
     this.air += ((onGround ? 0 : 1) - this.air) * (1 - Math.exp(-JUMP_BLEND_RATE * dt));
@@ -378,9 +503,10 @@ export class CharacterAnimator {
     add('rightKnee', 'x', -a * (0.25 + 0.45 * tuck) - l * 0.7);
     for (const [side, sign] of [['left', -1], ['right', 1]]) {
       // Arms lift out to the sides for balance (higher while rising), slightly forward.
-      add(`${side}Shoulder`, 'x', a * (0.1 + 0.3 * tuck));
-      add(`${side}Shoulder`, 'z', sign * a * (0.35 + 0.45 * tuck));
-      add(`${side}Elbow`, 'x', a * 0.5);
+      // (Less, or not at all, with weapons in hand.)
+      add(`${side}Shoulder`, 'x', armSwing * a * (0.1 + 0.3 * tuck));
+      add(`${side}Shoulder`, 'z', armSwing * sign * a * (0.35 + 0.45 * tuck));
+      add(`${side}Elbow`, 'x', armSwing * a * 0.5);
     }
     joints.root.position.y += -l * 0.07;
     joints.root.rotation.x += -a * 0.05 - l * 0.12;

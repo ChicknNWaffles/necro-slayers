@@ -602,3 +602,58 @@ export function playBeam({ volume = 0.13 } = {}) {
   air.start(fire, Math.random());
   air.stop(fire + 1.05);
 }
+
+// --- Weapons ----------------------------------------------------------------
+
+// A weapon landing. kind: 'blade' (a sword or axe biting in: a thump and a
+// wet, tearing slice), 'hammer' (a heavy, deep crunch), 'bash' (the flat of a
+// shield: a hollow, wooden bang) or 'block' (a blow stopped by a shield: a
+// ringing clang of metal).
+export function playWeaponHit(kind, { volume = 0.35 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+  const burst = (start, length, type, frequency, q, level) => {
+    const noise = ac.createBufferSource();
+    noise.buffer = noiseBuffer(ac);
+    const filter = ac.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = frequency;
+    filter.Q.value = q;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(level, t + start);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + start + length);
+    noise.connect(filter).connect(gain).connect(out);
+    noise.start(t + start, Math.random());
+    noise.stop(t + start + length + 0.01);
+  };
+  const thud = (from, to, length, level) => {
+    const tone = ac.createOscillator();
+    tone.frequency.setValueAtTime(from, t);
+    tone.frequency.exponentialRampToValueAtTime(to, t + length);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(level, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + length);
+    tone.connect(gain).connect(out);
+    tone.start(t);
+    tone.stop(t + length + 0.02);
+  };
+  if (kind === 'blade') {
+    thud(150, 60, 0.12, 0.9);
+    burst(0, 0.1, 'lowpass', 300, 1, 1.4);
+    burst(0.01, 0.16, 'bandpass', 2400, 1.2, 0.7);
+  } else if (kind === 'hammer') {
+    thud(110, 35, 0.3, 1.3);
+    burst(0, 0.18, 'lowpass', 450, 0.8, 1.8);
+    for (const d of [0, 0.03, 0.06]) burst(d, 0.04, 'bandpass', 1500 + Math.random() * 800, 2, 0.6);
+  } else if (kind === 'bash') {
+    thud(180, 80, 0.16, 1);
+    burst(0, 0.12, 'bandpass', 700, 1.5, 1.1);
+  } else if (kind === 'block') {
+    burst(0, 0.04, 'highpass', 3000, 1, 0.8);
+    metalRing(ac, out, t, 0.45, 0.6);
+    thud(260, 120, 0.1, 0.5);
+  }
+}

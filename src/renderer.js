@@ -66,10 +66,11 @@ export class GameRenderer {
   }
 
   // The player's character model, built from their appearance (see characterModel.js).
-  // caster: whether they cast spells (their hand can glow).
-  addPlayer(appearance, { caster = false } = {}) {
+  // caster: whether they cast spells (their hand can glow); weapons: the
+  // weapons they carry (see weaponModel.js).
+  addPlayer(appearance, { caster = false, weapons = [] } = {}) {
     this.player = new THREE.Group(); // origin is at the player's feet
-    this.playerModel = new CharacterModel(appearance, { caster });
+    this.playerModel = new CharacterModel(appearance, { caster, weapons });
     this.player.add(this.playerModel.root);
     this.scene.add(this.player);
   }
@@ -351,6 +352,16 @@ export class GameRenderer {
         return t < 1;
       },
     });
+  }
+
+  // Raise or lower a character's shield (the player's if no model is given).
+  setBlocking(model = this.playerModel, blocking) {
+    model.setBlocking(blocking);
+  }
+
+  // Where a weapon strikes metal (e.g. a blocked blow): bright sparks.
+  weaponSparks(position) {
+    this.sparks(position, 10, 0.35, { color: '#fff4c8', size: 0.08 });
   }
 
   // Where a zombie's claws or teeth land: a spatter of dark blood.

@@ -214,3 +214,19 @@ canvas {
   bottom: 0;
   background: rgba(0, 0, 0, 0.55);
 }
+
+/* A slot with a line of detail under its name (e.g. a weapon's controls). */
+.spell.detailed {
+  height: 50px;
+}
+
+.spell .label {
+  flex-direction: column;
+}
+
+.spell .detail {
+  margin-top: 2px;
+  color: #e6ddc8;
+  font-size: 10px;
+  font-weight: 400;
+}

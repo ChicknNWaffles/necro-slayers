@@ -17,13 +17,19 @@ export class Hud {
     this.spellSlots = [];
   }
 
-  // spells: [{ label, key }] -- the player's spells, in order.
+  // spells: [{ label, key, detail }] -- the player's spells (or weapons), in
+  // order. detail: a line of smaller text under the label, e.g. the controls.
   setSpells(spells) {
     this.spellBar.replaceChildren();
-    this.spellSlots = spells.map(({ label, key }) => {
+    this.spellSlots = spells.map(({ label, key, detail }) => {
       const slot = element('div', 'spell', this.spellBar);
       element('div', 'key', slot).textContent = key;
-      element('div', 'label', slot).textContent = label;
+      const text = element('div', 'label', slot);
+      text.textContent = label;
+      if (detail) {
+        slot.classList.add('detailed');
+        element('span', 'detail', text).textContent = detail;
+      }
       return { slot, recharge: element('div', 'recharge', slot) };
     });
   }

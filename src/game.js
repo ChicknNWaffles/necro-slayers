@@ -3,9 +3,12 @@
 import { GameRenderer } from './renderer.js';
 import { createAppearance } from './characterAppearance.js';
 import {
-  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam,
+  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam, playWeaponHit,
 } from './sound.js';
-import { SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT, BEAM_IMPACT } from './characterAnimation.js';
+import {
+  SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT, BEAM_IMPACT,
+  STAB_IMPACT, SLASH_IMPACT, BASH_IMPACT, AXE_IMPACT, HAMMER_IMPACT,
+} from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
 import { Hud } from './hud.js';
@@ -49,13 +52,14 @@ const player = {
   shieldTime: 0,  // seconds of Shield of Faith left
   empowerTime: 0, // seconds of Sovereign Aid left
   stunTime: 0,    // seconds of being stunned left (see Cleansing Light)
-  // The player's class decides which spells they can learn (see CLASSES),
-  // and they pick some of them (see chooseSpells). There's no character
-  // creator to choose these yet, so for now the player is a cleric with a
-  // starting set of spells.
+  // The player's class decides what they can do (see CLASSES): a cleric picks
+  // spells (see chooseSpells), a fighter weapons (see chooseWeapons). There's
+  // no character creator to choose these yet -- see PLAYER_CHOICES.
   characterClass: 'cleric',
   spells: [],
-  selectedSpell: 0, // which of their spells left click casts (chosen with the number keys)
+  weapons: [],
+  selectedSpell: 0, // which of their spells (or weapons) is in use (chosen with the number keys)
+  blocking: false,  // holding up a shield
   cooldowns: {},
   casting: null,
 };
@@ -68,16 +72,42 @@ const CLASSES = {
     spells: ['smite', 'divineBlade', 'divineRestoration', 'shieldOfFaith', 'sovereignAid', 'cleansingLight'],
     slots: 4,
   },
+  // A sword, a shield, and a halberd -- two hands' worth of them: the sword
+  // and shield can be carried together, but the halberd takes both hands.
+  fighter: {
+    weapons: ['sword', 'shield', 'halberd'],
+    slots: 2,
+  },
 };
 const PLAYER_SPELL_KEYS = ['1', '2', '3', '4']; // select the first spell with 1, the next with 2...
 
 // The player's spells: the ones they picked, if they're all ones their class
 // can learn (and there are no more than it has room for).
 function chooseSpells(characterClass, picks) {
-  const { spells, slots } = CLASSES[characterClass];
+  const { spells = [], slots } = CLASSES[characterClass];
   return [...new Set(picks)].filter((s) => spells.includes(s)).slice(0, slots);
 }
-player.spells = chooseSpells(player.characterClass, ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight']);
+// The player's weapons: the ones they picked, as long as they fit in their
+// hands (each takes a slot, the halberd two).
+function chooseWeapons(characterClass, picks) {
+  const { weapons, slots } = CLASSES[characterClass];
+  const chosen = [];
+  let used = 0;
+  for (const name of new Set(picks)) {
+    if (!weapons.includes(name)) continue;
+    const cost = WEAPONS[name].hands;
+    if (used + cost <= slots) { chosen.push(name); used += cost; }
+  }
+  return chosen;
+}
+
+// What the player chose, until there's a character creator: their class, and
+// their spells (a cleric) or weapons (a fighter). Change these to try another.
+const PLAYER_CHOICES = {
+  characterClass: 'fighter',
+  spells: ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight'],
+  weapons: ['halberd'], // (or ['sword', 'shield'])
+};
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
 // or partial appearance; anything missing or invalid keeps its current value.
@@ -207,7 +237,107 @@ function toggleFollowing() {
 //   Divine Blade: the enemy in front, within range -- or the ground ahead
 //   Cleansing Light: straight ahead
 function selectSpell(slot) {
-  if (slot < player.spells.length) player.selectedSpell = slot;
+  if (slot < playerSlots().length) player.selectedSpell = slot;
+}
+
+// What the number keys choose between: a cleric's spells, or the moves of a
+// fighter's weapons (e.g. Stab, Slash, Block, Shield Bash).
+function playerSlots() {
+  return player.weapons.length ? player.weapons.flatMap((w) => WEAPONS[w].moves) : player.spells;
+}
+
+// --- The player's weapons (a fighter) ---------------------------------------
+
+// Each weapon has two moves. Like spells, the number keys choose one and
+// left click uses it (for Block, left click is held).
+const WEAPONS = {
+  sword: { label: 'Sword', hands: 1, moves: ['stab', 'slash'] },
+  shield: { label: 'Shield', hands: 1, moves: ['block', 'bash'] },
+  halberd: { label: 'Halberd', hands: 2, moves: ['axeSlash', 'hammer'] },
+};
+
+// The moves, used like spells (see landSpell):
+//   strike: a melee blow -- range: how far it reaches; arc: how wide (radians
+//     either side of straight ahead); sweep: whether it hits everyone in the
+//     arc (rather than just the nearest); damage; knockback: how far it
+//     throws them back; stun: seconds they're stunned; sound: see playWeaponHit
+//   cooldown: seconds before the move can be used again (after it finishes)
+const MOVES = {
+  stab: { label: 'Stab', gesture: 'stab', strike: true, range: 2.1, arc: 0.3, damage: 15, duration: 0.65, impact: STAB_IMPACT, cooldown: 0.1, sound: 'blade' },
+  slash: { label: 'Slash', gesture: 'slash', strike: true, range: 1.9, arc: 1.1, sweep: true, damage: 11, duration: 0.75, impact: SLASH_IMPACT, cooldown: 0.1, sound: 'blade' },
+  block: { label: 'Block', detail: 'hold' },
+  bash: { label: 'Shield Bash', gesture: 'bash', strike: true, range: 1.6, arc: 0.7, damage: 5, stun: 1.2, knockback: 1.2, duration: 0.7, impact: BASH_IMPACT, cooldown: 1.5, sound: 'bash' },
+  axeSlash: { label: 'Axe Slash', gesture: 'axeSlash', strike: true, range: 2.7, arc: 1.2, sweep: true, damage: 20, duration: 1.0, impact: AXE_IMPACT, cooldown: 0.3, sound: 'blade' },
+  hammer: { label: 'Hammer Blow', gesture: 'hammer', strike: true, range: 2.5, arc: 0.5, damage: 16, knockback: 3.5, duration: 1.15, impact: HAMMER_IMPACT, cooldown: 0.8, sound: 'hammer' },
+};
+
+// Use the selected weapon move.
+function useWeapon() {
+  const name = playerSlots()[player.selectedSpell];
+  const move = MOVES[name];
+  if (!move?.strike || player.casting || player.blocking || player.stunTime > 0 || (player.cooldowns[name] ?? 0) > 0) return;
+  player.casting = { spell: move, target: null, time: 0, landed: false };
+  player.cooldowns[name] = move.duration + move.cooldown;
+  renderer.playerGesture(move.gesture);
+  playSwing();
+}
+
+// Holding up a shield (while left click is held, with Block selected).
+function setPlayerBlocking(blocking) {
+  const canBlock = playerSlots()[player.selectedSpell] === 'block' && !player.casting && player.stunTime <= 0;
+  player.blocking = blocking && canBlock;
+  renderer.setBlocking(undefined, player.blocking);
+}
+
+// A melee blow landing: it hits whoever is in front of the attacker, within
+// its reach and arc -- the enemies, if the attacker is in the party, or the
+// party if they're an enemy.
+function strike(attacker, move) {
+  const facingX = -Math.sin(attacker.yaw), facingZ = -Math.cos(attacker.yaw);
+  const foes = partyMembers().includes(attacker) ? livingEnemies() : livingParty();
+  const hits = [];
+  for (const foe of foes) {
+    const dx = foe.position.x - attacker.position.x, dz = foe.position.z - attacker.position.z;
+    const d = Math.hypot(dx, dz);
+    const reach = move.range + (foe.radius ?? PLAYER_RADIUS);
+    const angle = Math.acos(Math.min(Math.max((dx * facingX + dz * facingZ) / (d || 1), -1), 1));
+    if (d <= reach && (angle <= move.arc || d < 0.6)) hits.push({ foe, d, dx, dz });
+  }
+  hits.sort((a, b) => a.d - b.d);
+  if (!move.sweep) hits.splice(1);
+  for (const { foe, d, dx, dz } of hits) {
+    const blocked = hurt(foe, move.damage, attacker);
+    const at = { x: foe.position.x - (dx / (d || 1)) * 0.3, y: foe.position.y + 1.2, z: foe.position.z - (dz / (d || 1)) * 0.3 };
+    if (blocked) continue;
+    playWeaponHit(move.sound);
+    if (foe.undead || foe.role === 'enemy') renderer.bloodSpatter(at); else renderer.weaponSparks(at);
+    if (move.knockback) knockBack(foe, dx / (d || 1), dz / (d || 1), move.knockback);
+    if (move.stun) stun(foe, move.stun);
+  }
+}
+
+// Knocked back: thrown a distance away (in direction dx, dz), sliding to a
+// stop over a moment, unable to act meanwhile.
+const KNOCKBACK_TIME = 0.35;
+
+function knockBack(character, dx, dz, distance) {
+  // (Starting fast and slowing: covers `distance` over KNOCKBACK_TIME.)
+  const speed = (2 * distance) / KNOCKBACK_TIME;
+  character.knock = { x: dx * speed, z: dz * speed, time: KNOCKBACK_TIME };
+  character.casting = null;
+}
+
+// Moves a knocked-back character; returns whether they're still being thrown.
+function updateKnockback(character, dt) {
+  const knock = character.knock;
+  if (!knock) return false;
+  const t = Math.min(dt, knock.time);
+  const slow = knock.time / KNOCKBACK_TIME; // (1 at the start, 0 at the end)
+  character.position.x += knock.x * slow * t;
+  character.position.z += knock.z * slow * t;
+  knock.time -= dt;
+  if (knock.time <= 0) character.knock = null;
+  return true;
 }
 
 function castPlayerSpell(name) {
@@ -443,7 +573,8 @@ function nearest(npc, others) {
 function updateNpc(npc, dt) {
   const pos = npc.position;
   const start = { x: pos.x, z: pos.z };
-  const { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 ? {} : chooseMove(npc, dt);
+  const knocked = updateKnockback(npc, dt);
+  const { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 || knocked ? {} : chooseMove(npc, dt);
 
   let faceX = 0, faceZ = 0;
   if (goal) {
@@ -623,7 +754,7 @@ function landSpell(caster, { spell, target }) {
   } else if (spell.bite !== undefined) {
     // An enemy's attack: it only lands if the victim is still within reach.
     if (!within(spell.range * 1.3)) return;
-    hurt(target, spell.damage, caster);
+    if (hurt(target, spell.damage, caster)) return; // (blocked by a shield)
     const at = target.position;
     renderer.bloodSpatter({ x: (at.x * 2 + caster.position.x) / 3, y: at.y + (spell.bite ? 1.45 : 1.2), z: (at.z * 2 + caster.position.z) / 3 });
     playWound(spell.bite ? 'bite' : 'scratch');
@@ -632,6 +763,8 @@ function landSpell(caster, { spell, target }) {
     startStorm(spell, target.position, caster);
   } else if (spell.beam) {
     startBeam(spell, caster);
+  } else if (spell.strike) {
+    strike(caster, spell);
   } else if (within(spell.range * 1.3)) {
     // (A close-range spell only lands if the target is still there and within reach.)
     hurt(target, spell.damage, caster);
@@ -866,18 +999,36 @@ function outsideStorms(point) {
 const SHIELD_PROTECTION = 0.5; // the share of damage a shield stops
 const EMPOWER_BONUS = 0.5;     // the extra share of damage an empowered attacker does
 
+// A raised shield (see blocking) turns aside most of a blow from in front.
+// Returns whether the blow was blocked.
+const BLOCK_PROTECTION = 0.85; // the share of damage a raised shield stops
+const BLOCK_ARC = 1.2;         // how far round from straight ahead (radians) it covers
+
 function hurt(target, damage, attacker = null) {
-  if (target.dead) return;
+  if (target.dead) return false;
   if (attacker?.empowerTime > 0) damage *= 1 + EMPOWER_BONUS;
   if (target.shieldTime > 0) damage *= 1 - SHIELD_PROTECTION;
+  let blocked = false;
+  if (target.blocking && attacker && attacker !== target) {
+    const dx = attacker.position.x - target.position.x, dz = attacker.position.z - target.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const facing = (-Math.sin(target.yaw) * dx - Math.cos(target.yaw) * dz) / d;
+    if (Math.acos(Math.min(Math.max(facing, -1), 1)) <= BLOCK_ARC) {
+      blocked = true;
+      damage *= 1 - BLOCK_PROTECTION;
+      playWeaponHit('block');
+      renderer.weaponSparks({ x: target.position.x + (dx / d) * 0.45, y: target.position.y + 1.2, z: target.position.z + (dz / d) * 0.45 });
+    }
+  }
   target.health = Math.max(target.health - damage, 0);
   if (target.health > 0 || target === player) {
-    renderer.npcFlinch(target.view);
+    if (!blocked) renderer.npcFlinch(target.view);
   } else {
     target.dead = true;
     target.casting = null;
     renderer.npcDie(target.view);
   }
+  return blocked;
 }
 
 // --- Combat mode -----------------------------------------------------------
@@ -1027,7 +1178,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') startOrbit();
   if (e.key.toLowerCase() === 'z' && !e.repeat) toggleFollowing();
   const spellSlot = PLAYER_SPELL_KEYS.indexOf(e.key);
-  if (spellSlot >= 0) selectSpell(spellSlot);
+  if (spellSlot >= 0) {
+    selectSpell(spellSlot);
+    setPlayerBlocking(false);
+  }
 
   const key = e.key.toLowerCase();
   if (key in KEY_BINDINGS) {
@@ -1083,7 +1237,7 @@ function isFallingNearFloor() {
 
 function updatePlayer(dt) {
   const pos = player.position;
-  const stunned = player.stunTime > 0; // (a stunned player can't move or jump)
+  const stunned = player.stunTime > 0 || updateKnockback(player, dt); // (a stunned or thrown player can't move or jump)
 
   // Horizontal movement, relative to the direction the camera faces.
   const forward = stunned ? 0 : Number(isActionHeld('forward')) - Number(isActionHeld('back'));
@@ -1113,6 +1267,7 @@ function updatePlayer(dt) {
     if (Math.abs(rightAmount) > 0.1 && forwardAmount > -0.1) sideways = Math.sign(rightAmount);
 
     let speed = capsLockOn ? PLAYER.runSpeed : PLAYER.speed;
+    if (player.blocking) speed = PLAYER.speed * 0.45; // (edging along behind a shield)
     if (movingBackward) speed *= PLAYER.backwardSpeedFactor;
 
     pos.x += dirX * speed * dt;
@@ -1167,7 +1322,10 @@ function updatePlayer(dt) {
 
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
-renderer.addPlayer(player.appearance, { caster: player.spells.length > 0 });
+player.characterClass = PLAYER_CHOICES.characterClass;
+if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells);
+if (CLASSES[player.characterClass].weapons) player.weapons = chooseWeapons(player.characterClass, PLAYER_CHOICES.weapons);
+renderer.addPlayer(player.appearance, { caster: player.spells.length > 0, weapons: player.weapons });
 player.view = renderer.playerModel;
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
 
@@ -1178,7 +1336,10 @@ hud.setParty(partyMembers().map((member) => ({
   id: member, name: member.name, portrait: renderer.portrait(member.view),
 })));
 hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
-hud.setSpells(player.spells.map((name, i) => ({ label: SPELLS[name].label, key: PLAYER_SPELL_KEYS[i] })));
+hud.setSpells(playerSlots().map((name, i) => {
+  const { label, detail } = MOVES[name] ?? SPELLS[name];
+  return { label, detail, key: PLAYER_SPELL_KEYS[i] };
+}));
 
 // Shields wear off over time; the membrane fades in when one is cast, and
 // flickers as it's about to wear off.
@@ -1201,7 +1362,9 @@ function updateHud() {
     combat: combat.active,
     spells: {
       selected: player.selectedSpell,
-      recharging: player.spells.map((name) => (player.cooldowns[name] ?? 0) / SPELLS[name].cooldown),
+      recharging: playerSlots().map((name) => (MOVES[name]
+        ? (player.cooldowns[name] ?? 0) / (MOVES[name].duration + MOVES[name].cooldown) || 0
+        : (player.cooldowns[name] ?? 0) / SPELLS[name].cooldown)),
     },
     party: partyMembers().map((member) => ({
       id: member, health: member.health, maxHealth: member.maxHealth,
@@ -1254,8 +1417,17 @@ document.addEventListener('mousedown', (e) => {
     jumpRequested = true;
   }
   if (e.button === LEFT_MOUSE_BUTTON && document.pointerLockElement === renderer.canvas) {
-    castPlayerSpell(player.spells[player.selectedSpell]);
+    if (player.weapons.length) {
+      if (playerSlots()[player.selectedSpell] === 'block') setPlayerBlocking(true);
+      else useWeapon();
+    } else {
+      castPlayerSpell(player.spells[player.selectedSpell]);
+    }
   }
+});
+
+document.addEventListener('mouseup', (e) => {
+  if (e.button === LEFT_MOUSE_BUTTON) setPlayerBlocking(false);
 });
 
 // Don't open a context menu on right click.
