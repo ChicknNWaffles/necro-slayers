@@ -271,3 +271,27 @@ please commit the changes
 now, please add a gamestate called "combat mode". Combat mode is initiated by the player and/or the party (the party is the player and the npcs who are capable of following, for now that's just the player and Evalyn but we will add another later) are within range of an enemy. Please restrict wandering party member's pathfinding so that they stay within the same rough area that the player is in, reducing the likelihood that they wander into combat without the player. When in combat mode, health bars should show up in the upper lefthand corner of the screen for each party member, labeled by a circle to the left of the health bar that has the corresponding character's head shot (facing slightly off center towards the right). Make the left side of the health bar attached to this circle. The enemy's health bars will be floating above their heads, no need for a face label on that. When in combat mode, follow will be replaced with the party members being in a formation with the player, and wander mode will be replaced with them freely pursuing the enemy to fight it
 
 please commit the changes
+
+Now let's implement Evalyn's spells for combat. First, a spell called "Smite" in which she whacks the enemy with a glowing hand, and it does damage
+
+I don't like the dinging sound you gave smite. replace it with the sound of a lightning clap
+
+that doesn't sound like lightening. I want it to sound like thunder
+
+now for her next spell. It is called Divine Blade. It summons a hailstorm of swords in a limited area. This is a ranged area of effect spell. Make it so that while in combat, she doesn't stay right up next to the enemy, but does go near/ around it, only getting up close to it for individual strikes of mele-range attacks such as smite. For Divine Blade, she would actively try not to be in the way of her own attack
+
+please don't make her circle the enemy so much. I like the radius she's operating at and yes she should sometimes strafe in that radius, but I don't want her just running circles around them for no reason. Also, I like the sound you went with for divine blade, but I want to add a thud upon impact to the ground for each sword. I want to keep the rest of the sound effect as is, but add this layer to it
+
+Now since her next spell is a healing spell, I must first implement the enemy's attacks. Since these are zombies they attempt to bite and scratch at the player. No need to create any zombie infection states, this is a "fighting a necromancer" type situation not a "zombie apocalypse" type situation
+
+addendum to previous prompt, they target both the player and party members
+
+I didn't intent you to implement Evalyn's healing spell yet, but that was the next task anyway, so it's ok. Her healing spell is called "Divine Restoration" and heals a set portion of health to either her self or a specific target. This is not a range spell and she targets people by touching them. She targets herself by placing a hand on her chest
+
+Her hand is clipping through her chest during the self heal. Please fix that and rotate the hand so it looks like it's resting on her chest and not in her chest
+
+her hand is now hovering in front of her chest instead of resting on it, and her wrist is still clipping through her breast. For the self heal, it should be laying upon her breast with no clipping. You should probably bend her wrist for this
+
+now for Evalyn's last spell, "Shield of Faith". It covers either herself or a target in a magical armor that appears as a pearlescent shimmery transparent membrane over their whole model. This reduces damage dealt to target. The spell only lasts for a period of time before wearing off. While the shield is in effect, an icon for it (a pastel pale purple shield with a glowey yellow diagonal stripe through it in a white circle with a yellow background) will appear in under the corresponding character's health bar
+
+please increase the damage of the zombie's attacks slightly to make it more ballanced. Then push the changes

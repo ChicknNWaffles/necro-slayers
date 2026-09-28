@@ -2,7 +2,7 @@
 // Game logic does not belong here -- that lives in game.js. The game tells the
 // renderer what exists and where it is; the renderer only draws it.
 import * as THREE from '../node_modules/three/build/three.module.js';
-import { CharacterModel } from './characterModel.js';
+import { CharacterModel, glowTexture } from './characterModel.js';
 
 const PORTRAIT_BACKGROUND = '#d9e4ee'; // (matches the portrait frames in style.css)
 
@@ -23,6 +23,9 @@ export class GameRenderer {
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
     this.scene.add(this.camera);
+
+    this.effects = []; // short-lived visual effects, e.g. a spell hitting (see effect())
+    this.lastRender = performance.now();
 
     this.addLights();
     this.resize();
@@ -73,9 +76,10 @@ export class GameRenderer {
   // A non-player character. Returns the NPC's model, which the game passes
   // back to updateNpc and animateNpc.
   // yaw: the direction they face (same convention as the player).
-  // pose: how they stand when still; decay: for the undead (see characterModel.js).
-  addNpc({ appearance, position, yaw, pose, decay }) {
-    const model = new CharacterModel(appearance, { pose, decay });
+  // pose: how they stand when still; decay: for the undead; caster: casts
+  // spells (see characterModel.js).
+  addNpc({ appearance, position, yaw, pose, decay, caster }) {
+    const model = new CharacterModel(appearance, { pose, decay, caster });
     this.scene.add(model.root);
     this.updateNpc(model, position, yaw);
     return model;
@@ -89,6 +93,240 @@ export class GameRenderer {
   // Play a gesture on the player's model (see characterAnimation.js).
   playerGesture(name) {
     this.playerModel.gesture(name);
+  }
+
+  // An NPC gestures (e.g. casts a spell), flinches from a hit, or falls down dead.
+  npcGesture(model, name) {
+    model.gesture(name);
+  }
+
+  // (With no model given, it's the player who flinches.)
+  npcFlinch(model = this.playerModel) {
+    model.flinch();
+  }
+
+  npcDie(model) {
+    model.die();
+  }
+
+  // A burst of holy light where a smite lands: a flash, a ring spreading out
+  // and a few sparks flying off. position: { x, y, z } in the world.
+  smiteBurst(position) {
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y, position.z);
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffe38a', ...additive }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 40), new THREE.MeshBasicMaterial({ color: '#fff0b8', side: THREE.DoubleSide, ...additive }));
+    const sparks = Array.from({ length: 10 }, () => {
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff6d0', ...additive }));
+      spark.userData.velocity = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(2 + Math.random() * 2);
+      return spark;
+    });
+    group.add(flash, ring, ...sparks);
+    this.scene.add(group);
+    const duration = 0.45;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age, dt) => {
+        const t = age / duration;
+        flash.scale.setScalar(0.4 + 1.2 * t);
+        flash.material.opacity = 1 - t;
+        ring.scale.setScalar(0.15 + 0.7 * t);
+        ring.material.opacity = (1 - t) * 0.9;
+        ring.lookAt(this.camera.position); // (facing the camera)
+        for (const spark of sparks) {
+          spark.position.addScaledVector(spark.userData.velocity, dt);
+          spark.userData.velocity.y -= 6 * dt;
+          spark.scale.setScalar(0.12 * (1 - t));
+          spark.material.opacity = 1 - t;
+        }
+        return t < 1;
+      },
+    });
+  }
+
+  // Divine Blade's area: a ring of golden light on the ground, pulsing, for
+  // `duration` seconds. centre: { x, z } on the floor.
+  bladeArea(centre, radius, duration) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    group.position.set(centre.x, 0.03, centre.z);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.94, radius, 64), new THREE.MeshBasicMaterial({ color: '#ffd45c', side: THREE.DoubleSide, ...additive }));
+    const fill = new THREE.Mesh(new THREE.CircleGeometry(radius, 64), new THREE.MeshBasicMaterial({ color: '#ffe9a8', side: THREE.DoubleSide, ...additive }));
+    for (const mesh of [ring, fill]) mesh.rotation.x = -Math.PI / 2;
+    group.add(fill, ring);
+    this.scene.add(group);
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        const fadeIn = Math.min(age / 0.25, 1), fadeOut = Math.min((duration - age) / 0.4, 1);
+        const pulse = 0.75 + 0.25 * Math.sin(age * 12);
+        ring.material.opacity = fadeIn * fadeOut * pulse;
+        fill.material.opacity = 0.18 * fadeIn * fadeOut;
+        return age < duration;
+      },
+    });
+  }
+
+  // One of Divine Blade's swords: glowing, it drops point-first from high
+  // above, landing on `at` ({ x, z } on the floor) after `fallTime` seconds,
+  // where it sticks in the ground in a spray of sparks and then fades away.
+  fallingSword(at, fallTime) {
+    const sword = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial({ color: '#fff3c4', transparent: true });
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(), color: '#ffcf4a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    halo.scale.set(0.5, 1.3, 1);
+    halo.position.y = 0.55;
+    sword.add(...swordParts(material), halo);
+    sword.rotation.y = Math.random() * Math.PI;
+    sword.rotation.z = (Math.random() - 0.5) * 0.25; // (a little off vertical)
+    const height = 7, sink = 0.18;
+    sword.position.set(at.x, height, at.z);
+    this.scene.add(sword);
+    let landed = false;
+    this.addEffect({
+      group: sword,
+      age: 0,
+      update: (age) => {
+        if (age < fallTime) {
+          const t = age / fallTime;
+          sword.position.y = -sink + (height + sink) * (1 - t * t); // (speeding up as it falls)
+          return true;
+        }
+        if (!landed) {
+          landed = true;
+          sword.position.y = -sink;
+          this.sparks({ x: at.x, y: 0.05, z: at.z }, 6, 0.35);
+        }
+        const fade = 1 - Math.min((age - fallTime - 0.5) / 0.6, 1);
+        material.opacity = fade;
+        halo.material.opacity = fade * 0.8;
+        return fade > 0;
+      },
+    });
+  }
+
+  // Shield of Faith on a character (the player's model if none is given):
+  // amount 0 (none) to 1 (fully shielded).
+  setShield(model = this.playerModel, amount) {
+    model.setShield(amount, performance.now() / 1000);
+  }
+
+  // Healing light (Divine Restoration) on someone: a soft glow rising round
+  // them from a ring of light at their feet, and motes of light drifting up.
+  // position: { x, y, z } -- their feet.
+  healingLight(position) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y, position.z);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.7, 48), new THREE.MeshBasicMaterial({ color: '#ffe8a0', side: THREE.DoubleSide, ...additive }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    const column = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.62, 2.2, 32, 1, true).translate(0, 1.1, 0),
+      new THREE.MeshBasicMaterial({ color: '#fff0c0', side: THREE.DoubleSide, ...additive }),
+    );
+    const motes = Array.from({ length: 22 }, () => {
+      const mote = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff4cc', ...additive }));
+      const angle = Math.random() * Math.PI * 2, r = 0.25 + Math.random() * 0.4;
+      mote.position.set(Math.sin(angle) * r, Math.random() * 0.4, Math.cos(angle) * r);
+      mote.userData = { speed: 0.9 + Math.random() * 0.9, delay: Math.random() * 0.6, swirl: (Math.random() - 0.5) * 2 };
+      return mote;
+    });
+    group.add(ring, column, ...motes);
+    this.scene.add(group);
+    const duration = 1.8;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age, dt) => {
+        const t = age / duration;
+        const fade = Math.min(t / 0.15, 1) * Math.min((1 - t) / 0.35, 1);
+        ring.material.opacity = 0.9 * fade;
+        ring.scale.setScalar(1 + 0.2 * Math.sin(age * 8));
+        column.material.opacity = 0.16 * fade;
+        for (const mote of motes) {
+          const { speed, delay, swirl } = mote.userData;
+          const live = age > delay;
+          mote.visible = live;
+          if (!live) continue;
+          mote.position.y += speed * dt;
+          const a = swirl * dt, c = Math.cos(a), s = Math.sin(a);
+          const { x, z } = mote.position;
+          mote.position.x = x * c - z * s;
+          mote.position.z = x * s + z * c;
+          mote.scale.setScalar(0.09 * fade);
+          mote.material.opacity = fade;
+        }
+        return t < 1;
+      },
+    });
+  }
+
+  // Where a zombie's claws or teeth land: a spatter of dark blood.
+  // position: { x, y, z } in the world.
+  bloodSpatter(position) {
+    this.sparks(position, 9, 0.5, { color: '#7a0e12', glow: false, size: 0.07 });
+  }
+
+  // A small spray of glowing sparks (e.g. where a sword lands), or with
+  // glow: false, of drops (e.g. blood).
+  sparks(position, count, duration, { color = '#fff2c0', glow = true, size = 0.1 } = {}) {
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y, position.z);
+    const sparks = Array.from({ length: count }, () => {
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture(), color, transparent: true, depthWrite: false,
+        blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending,
+      }));
+      spark.userData.velocity = new THREE.Vector3(Math.random() - 0.5, 0.6 + Math.random(), Math.random() - 0.5).normalize().multiplyScalar(1.5 + Math.random() * 2);
+      return spark;
+    });
+    group.add(...sparks);
+    this.scene.add(group);
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age, dt) => {
+        const t = age / duration;
+        for (const spark of sparks) {
+          spark.position.addScaledVector(spark.userData.velocity, dt);
+          spark.userData.velocity.y -= 7 * dt;
+          spark.scale.setScalar(size * (1 - t));
+          spark.material.opacity = 1 - t;
+        }
+        return t < 1;
+      },
+    });
+  }
+
+  // Starts an effect: { group (added to the scene), age, update(age, dt) --
+  // returns false when it's over }. (Its first frame is set up straight away.)
+  addEffect(effect) {
+    effect.update(0, 0);
+    this.effects.push(effect);
+  }
+
+  updateEffects(dt) {
+    // (Effects can start new ones as they go -- e.g. a landing sword's sparks --
+    // which are collected separately and kept.)
+    const current = this.effects;
+    this.effects = [];
+    const kept = current.filter((effect) => {
+      effect.age += dt;
+      if (effect.update(effect.age, dt)) return true;
+      this.scene.remove(effect.group);
+      effect.group.traverse((o) => {
+        if (!o.geometry?.userData.shared) o.geometry?.dispose(); // (shared shapes, like the sword's, are kept)
+        o.material?.dispose();
+      });
+      return false;
+    });
+    this.effects = kept.concat(this.effects);
   }
 
   // Animate an NPC's body, like animatePlayer.
@@ -200,6 +438,26 @@ export class GameRenderer {
   }
 
   render() {
+    const now = performance.now();
+    this.updateEffects(Math.min((now - this.lastRender) / 1000, 0.1));
+    this.lastRender = now;
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+// A sword, point down, its tip at y = 0: a long, slim blade with a point, a
+// crossguard, a grip and a round pommel. (About 1.1 units long.)
+const swordGeometry = (() => {
+  const blade = new THREE.BoxGeometry(0.07, 0.72, 0.012).translate(0, 0.23 + 0.36, 0);
+  const tip = new THREE.ConeGeometry(0.05, 0.23, 4).rotateX(Math.PI).rotateY(Math.PI / 4).scale(1, 1, 0.24).translate(0, 0.115, 0);
+  const guard = new THREE.BoxGeometry(0.3, 0.04, 0.045).translate(0, 0.97, 0);
+  const grip = new THREE.CylinderGeometry(0.018, 0.018, 0.18, 8).translate(0, 1.08, 0);
+  const pommel = new THREE.SphereGeometry(0.035, 10, 8).translate(0, 1.19, 0);
+  const parts = [blade, tip, guard, grip, pommel];
+  for (const part of parts) part.userData.shared = true;
+  return parts;
+})();
+
+function swordParts(material) {
+  return swordGeometry.map((geometry) => new THREE.Mesh(geometry, material));
 }

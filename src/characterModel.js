@@ -12,6 +12,7 @@ import {
 import { createHand } from './handModel.js';
 import { createFoot } from './footModel.js';
 import { CharacterAnimator } from './characterAnimation.js';
+import { ShieldEffect } from './shieldEffect.js';
 import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 import { skirtGeometry, sleeveGeometry, SkirtMotion } from './clothingModel.js';
 import { braidGeometry } from './braidModel.js';
@@ -50,12 +51,14 @@ const CLOTH_TOON_STEPS = [178, 222, 255];      // loose clothes: a little strong
 export class CharacterModel {
   // pose: how the character stands (see POSES), e.g. 'handsFolded' for an NPC.
   // decay: makes the character undead -- rot, torn clothes and wounds (see decayModel.js).
-  constructor(appearance, { pose = 'stand', decay = null } = {}) {
+  // caster: whether they cast spells (their right hand can glow, see handGlow).
+  constructor(appearance, { pose = 'stand', decay = null, caster = false } = {}) {
     this.root = new THREE.Group(); // add this to the scene; its origin is at the feet
     this.body = null;
     this.joints = {};
     this.pose = pose;
     this.decay = decay;
+    this.caster = caster;
     this.animator = new CharacterAnimator();
     this.setAppearance(appearance);
   }
@@ -65,6 +68,11 @@ export class CharacterModel {
   animate(state, dt) {
     this.animator.update(this.joints, state, dt, this.height, this.armPose);
     openMouth(this.mouth, this.animator.mouthOpen);
+    for (const side of ['left', 'right']) {
+      const wrist = this.joints[`${side}Wrist`];
+      wrist.userData.bend.set(wrist.rotation.x, wrist.rotation.y, wrist.rotation.z);
+    }
+    this.glow?.set(this.animator.handGlow);
     const moving = this.animator.moving;
     for (const sleeve of this.sleeves) sleeve.morphTargetInfluences[0] = moving; // (drape for hanging arms)
     if (this.skirt) {
@@ -83,6 +91,22 @@ export class CharacterModel {
     this.animator.gesture(name);
   }
 
+  // Shield of Faith's membrane over the whole model: amount 0 (none) to 1.
+  setShield(amount, time) {
+    if (amount > 0) this.shield ??= new ShieldEffect(this);
+    this.shield?.set(amount, time);
+  }
+
+  // React to being hit.
+  flinch() {
+    this.animator.flinch();
+  }
+
+  // Fall down dead.
+  die() {
+    this.animator.die();
+  }
+
   // Rebuild the body to match a new appearance.
   setAppearance(appearance) {
     if (this.body) {
@@ -90,6 +114,7 @@ export class CharacterModel {
       disposeTree(this.body);
     }
     const { body, joints, armPose, skirt, sleeves, onSkirt, mouth } = buildBody(appearance, this.pose, this.decay);
+    this.shield = null; // (made again for the new body when needed)
     this.mouth = mouth;
     this.body = body;
     this.joints = joints;
@@ -97,6 +122,7 @@ export class CharacterModel {
     this.skirt = skirt;
     this.sleeves = sleeves;
     this.onSkirt = onSkirt;
+    this.glow = this.caster ? handGlow(joints) : null;
     this.build = appearance.build;
     this.height = appearance.height;
     this.root.add(body);
@@ -284,6 +310,11 @@ function buildBody(a, poseName = 'stand', decay = null) {
     hand.position.y = -BODY.forearmLength; // the hand's origin is the wrist
     hand.scale.set(...scale);
     joints[`${side}Elbow`].add(hand);
+    // The wrist: its rotation bends the hand (see animate). (It isn't part of
+    // the skeleton that bends the body, so it's added after that's made.)
+    const wristJoint = new THREE.Object3D();
+    wristJoint.userData.bend = hand.userData.wristBend;
+    joints[`${side}Wrist`] = wristJoint;
 
     // Feet (see footModel.js), blended into the bottom of the legs.
     const footWidth = 1 + (w - 1) * 0.4; // build widens the feet a little
@@ -458,6 +489,51 @@ function legSpheres(joints, build) {
   }
   sphereList.length = n;
   return sphereList;
+}
+
+// A glow round the right hand, for casting spells: a bright core, a soft halo
+// and a warm light that lights up the character (and anything near). Always
+// there (dark when not in use), so the scene's lighting doesn't change.
+// Returns { set(amount) } -- amount 0 (off) to 1 (full).
+const GLOW = { color: '#ffd45c', core: '#fff4c2', size: 0.3, light: 0.35 };
+
+function handGlow(joints) {
+  const glow = new THREE.Group();
+  glow.position.y = -BODY.forearmLength - 0.09; // (the middle of the hand)
+  const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: GLOW.core, ...additive }));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: GLOW.color, ...additive }));
+  const light = new THREE.PointLight(GLOW.color, 0, 0.8, 2);
+  glow.add(core, halo, light);
+  joints.rightElbow.add(glow);
+  return {
+    set(amount = 0) {
+      core.visible = halo.visible = amount > 0.01;
+      core.material.opacity = 0.8 * amount;
+      halo.material.opacity = amount;
+      halo.scale.setScalar(GLOW.size * (0.6 + 0.4 * amount));
+      light.intensity = GLOW.light * amount;
+    },
+  };
+}
+
+// A soft round spot of light, fading out from the middle (for glows).
+let glowMap = null;
+export function glowTexture() {
+  if (!glowMap) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const context = canvas.getContext('2d');
+    const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.3, 'rgba(255,255,255,0.55)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 64, 64);
+    glowMap = new THREE.CanvasTexture(canvas);
+    glowMap.colorSpace = THREE.SRGBColorSpace;
+  }
+  return glowMap;
 }
 
 // Reuses geometry that takes a while to make (e.g. while a character creator

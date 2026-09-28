@@ -2,7 +2,10 @@
 // Uses the 3D renderer (renderer.js) to draw each frame.
 import { GameRenderer } from './renderer.js';
 import { createAppearance } from './characterAppearance.js';
-import { playVoice, startAudio } from './sound.js';
+import {
+  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield,
+} from './sound.js';
+import { SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT } from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
 import { Hud } from './hud.js';
@@ -43,6 +46,7 @@ const player = {
   name: 'You',
   maxHealth: 100,
   health: 100,
+  shieldTime: 0, // seconds of Shield of Faith left
 };
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
@@ -92,6 +96,8 @@ const NPCS = [
     radius: 0.5,
     follows: true,
     maxHealth: 80,
+    spells: ['divineRestoration', 'shieldOfFaith', 'divineBlade', 'smite'], // (in order of preference)
+    caster: true,
   },
   {
     // A zombie: the first enemy (a random character, see enemies.js). It
@@ -107,10 +113,16 @@ const NPCS = [
     wanderSpeed: 1.2,
     chaseSpeed: 1.8,
     maxHealth: 60,
+    attacks: ['scratch', 'scratch', 'bite'], // (picked at random: scratching more often than biting)
+    attackPause: [1.2, 2.2], // seconds between attacks
   },
 ].map((npc) => ({
   ...npc,
   health: npc.maxHealth,
+  dead: false,
+  shieldTime: 0,    // seconds of Shield of Faith left
+  casting: null,    // the spell they're in the middle of casting: { spell, target, time, landed }
+  cooldowns: {},    // spell -> seconds until it can be cast again
   position: { ...npc.position },
   velocityY: 0,
   onGround: true,
@@ -139,7 +151,7 @@ const NPC_MOVE = {
 // a wave ("you can stay").
 function toggleFollowing() {
   for (const npc of NPCS) {
-    if (!npc.follows) continue;
+    if (!npc.follows || npc.dead) continue;
     npc.following = !npc.following;
     npc.target = null;
     npc.waitTime = 0;
@@ -187,14 +199,27 @@ function distanceBetween(a, b) {
 // What an NPC does this frame: { goal (where to walk to, or none), speed,
 // running, face (what to turn towards when standing still) }.
 function chooseMove(npc, dt) {
+  const casting = castSpells(npc, dt);
+  if (casting) return casting;
   if (npc.role === 'enemy') {
     // Enemies go after the nearest party member in combat, and wander otherwise.
-    if (combat.active) return approach(npc, nearest(npc, partyMembers()), npc.chaseSpeed ?? npc.wanderSpeed);
+    if (combat.active) return approach(npc, nearest(npc, livingParty()), npc.chaseSpeed ?? npc.wanderSpeed);
     return wander(npc, dt);
   }
+  // A healer goes to whoever needs healing (see Divine Restoration)...
   if (combat.active) {
-    // In combat, followers keep in formation; the rest go after the enemies.
-    return npc.following ? keepFormation(npc) : approach(npc, nearest(npc, livingEnemies()));
+    // (...though out of the way of any falling swords first -- see Divine Blade.)
+    const escape = escapeStorms(npc);
+    if (escape) return escape;
+  }
+  const healing = goToHeal(npc);
+  if (healing) return healing;
+  if (combat.active) {
+    // ...then followers keep in formation, and the rest go after the enemies
+    // (spellcasters skirmishing round them rather than standing toe to toe).
+    const target = nearest(npc, livingEnemies());
+    if (npc.following) return keepFormation(npc);
+    return npc.spells ? skirmish(npc, target, dt) : approach(npc, target);
   }
   return npc.following ? follow(npc) : wander(npc, dt);
 }
@@ -227,15 +252,16 @@ function wander(npc, dt) {
 }
 
 // Going after someone: up to within reach of them, running when they're far off.
-function approach(npc, target, speed = null) {
+// reach: how close they get (arm's length for fighting, by default).
+function approach(npc, target, speed = null, reach = COMBAT.reach) {
   if (!target) return {};
   const distance = distanceBetween(npc.position, target.position);
   const wasMoving = npc.moveSpeed > 0;
-  if (distance <= COMBAT.reach + (wasMoving ? 0 : 0.3)) return { face: target.position };
+  if (distance <= reach + (wasMoving ? 0 : 0.3)) return { face: target.position };
   const running = speed === null && distance > COMBAT.runDistance;
   const s = speed ?? (running ? PLAYER.runSpeed : PLAYER.speed);
   // (Heading for the point at arm's length from them, rather than their middle.)
-  const k = (distance - COMBAT.reach) / distance;
+  const k = (distance - reach) / distance;
   const goal = {
     x: npc.position.x + (target.position.x - npc.position.x) * k,
     z: npc.position.z + (target.position.z - npc.position.z) * k,
@@ -260,6 +286,49 @@ function keepFormation(npc) {
   return { goal, speed: running ? PLAYER.runSpeed : PLAYER.speed, running, face };
 }
 
+// A spellcaster's way of fighting: keeping a little way off from the enemy,
+// holding their ground there (now and then stepping sideways to a new spot
+// round it), and only closing in when a close-range spell (like Smite) is
+// ready -- then backing off again once it's cast.
+const SKIRMISH = {
+  distance: 4,           // how far off they keep
+  strafeEvery: [3, 6],   // how long (seconds) they hold a spot before maybe moving
+  strafeChance: 0.5,     // how likely they are to move then
+  strafe: [0.35, 0.8],   // how far round the enemy (radians) they move
+  strafeSpeed: 2.5,      // how fast they side-step (units per second)
+};
+
+function skirmish(npc, target, dt) {
+  if (!target) return {};
+  // (Not while the enemy is in the middle of falling swords, though.)
+  const meleeReady = npc.spells.some((s) => SPELLS[s].melee && npc.cooldowns[s] === 0);
+  if (meleeReady && !outsideStorms({ ...target.position })) return approach(npc, target);
+  // Their spot: the direction from the enemy to them (so it moves with the
+  // enemy), kept until it's time to maybe side-step to a new one.
+  const bearing = Math.atan2(npc.position.x - target.position.x, npc.position.z - target.position.z);
+  npc.skirmish ??= { bearing, timer: 0 };
+  const spot = npc.skirmish;
+  spot.timer -= dt;
+  if (spot.timer <= 0) {
+    spot.timer = SKIRMISH.strafeEvery[0] + Math.random() * (SKIRMISH.strafeEvery[1] - SKIRMISH.strafeEvery[0]);
+    spot.bearing = bearing; // (wherever they've ended up)
+    if (Math.random() < SKIRMISH.strafeChance) {
+      const [least, most] = SKIRMISH.strafe;
+      spot.bearing += (Math.random() < 0.5 ? -1 : 1) * (least + Math.random() * (most - least));
+    }
+  }
+  const goal = {
+    x: target.position.x + Math.sin(spot.bearing) * SKIRMISH.distance,
+    z: target.position.z + Math.cos(spot.bearing) * SKIRMISH.distance,
+  };
+  outsideStorms(goal);
+  keepOnFloor(goal);
+  const far = distanceBetween(npc.position, goal);
+  if (far < 0.4) return { face: target.position }; // (holding their ground)
+  const running = far > COMBAT.runDistance + 1;
+  return { goal, speed: running ? PLAYER.runSpeed : far > 1.5 ? PLAYER.speed : SKIRMISH.strafeSpeed, running, face: target.position };
+}
+
 function nearest(npc, others) {
   let best = null, bestDistance = Infinity;
   for (const other of others) {
@@ -272,7 +341,7 @@ function nearest(npc, others) {
 function updateNpc(npc, dt) {
   const pos = npc.position;
   const start = { x: pos.x, z: pos.z };
-  const { goal = null, speed = 0, running = false, face = null } = chooseMove(npc, dt);
+  const { goal = null, speed = 0, running = false, face = null } = npc.dead ? {} : chooseMove(npc, dt);
 
   let faceX = 0, faceZ = 0;
   if (goal) {
@@ -288,7 +357,7 @@ function updateNpc(npc, dt) {
     faceX = face.x - pos.x; faceZ = face.z - pos.z;
   }
   keepOnFloor(pos);
-  pushAwayFromPlayer(npc);
+  if (!npc.dead) pushAwayFromPlayer(npc);
   // How fast they actually moved (less if the edge of the floor or the player
   // was in the way), for the walk and run animations.
   const moved = Math.hypot(pos.x - start.x, pos.z - start.z) / Math.max(dt, 1e-6);
@@ -325,6 +394,7 @@ function updateNpc(npc, dt) {
 function separateNpcs() {
   for (let i = 0; i < NPCS.length; i++) {
     for (let j = i + 1; j < NPCS.length; j++) {
+      if (NPCS[i].dead || NPCS[j].dead) continue; // (the dead lie where they fell)
       const a = NPCS[i].position, b = NPCS[j].position;
       const dx = b.x - a.x, dz = b.z - a.z;
       const distance = Math.hypot(dx, dz);
@@ -334,6 +404,300 @@ function separateNpcs() {
         b.x += (dx / distance) * overlap / 2; b.z += (dz / distance) * overlap / 2;
       }
     }
+  }
+}
+
+// --- Spells ----------------------------------------------------------------
+
+// Spells party members cast in combat.
+//   range: how close the target must be; cooldown: seconds before it can be cast again
+//   duration: how long casting takes (they stand still, facing the target)
+//   impact: when (seconds in) it takes effect -- matched to its gesture
+//   damage: health taken from the target
+//   melee: cast from right up close (so casters close in to cast it)
+//   minRange: for spells cast from a distance, how far off the target must be
+//   radius: for spells that strike an area (centred on the target), its size --
+//           they're only cast when no one in the party is in it
+//   heal: for healing spells, the share of the target's full health it restores
+//         (healing spells are cast on the party, not enemies -- see healingTarget)
+const SPELLS = {
+  // Divine Restoration: healing by touch. The healer goes to whoever in the
+  // party is hurt worst and lays a glowing hand on them -- or, to heal
+  // themselves, on their own chest (see the 'healTouch' and 'healSelf' gestures).
+  divineRestoration: {
+    gesture: 'healTouch', selfGesture: 'healSelf', range: 1.05, cooldown: 7, duration: 1.5, impact: HEAL_IMPACT,
+    heal: 0.35,
+    below: 0.6, // (only cast on someone below this share of their health)
+  },
+  // Shield of Faith: magical armour, laid on by touch like healing. The
+  // healer shields whoever in the party is closest to an enemy (and not
+  // already shielded) -- or themselves. It lasts a while, then wears off.
+  shieldOfFaith: {
+    gesture: 'shieldTouch', selfGesture: 'shieldSelf', range: 1.05, cooldown: 14, duration: 1.5, impact: HEAL_IMPACT,
+    shield: 12,        // how long it lasts (seconds)
+    threatRange: 6,    // (only cast on someone this close to an enemy)
+  },
+  // Smite: whacking an enemy with a glowing hand (see the 'smite' gesture).
+  smite: { gesture: 'smite', melee: true, range: 1.8, cooldown: 2.2, duration: 0.95, impact: SMITE_IMPACT, damage: 18 },
+  // Divine Blade: a hailstorm of glowing swords falling on an area round the
+  // target (see the 'invoke' gesture, and storms below). Each sword hurts
+  // anyone -- friend or foe -- where it lands.
+  divineBlade: {
+    gesture: 'invoke', minRange: 3, range: 9, radius: 2.2, cooldown: 9, duration: 1.2, impact: INVOKE_IMPACT,
+    swords: 26,       // how many fall
+    stormTime: 1.6,   // over how long (seconds)
+    swordDamage: 3,   // damage to anyone within...
+    swordReach: 0.8,  // ...this distance of where a sword lands
+  },
+};
+
+// In combat, a caster casts whatever spell is ready at the nearest enemy in
+// range (and an enemy attacks -- see attack). Returns what to do while casting
+// (stand still, facing the target), or nothing if not casting.
+function castSpells(npc, dt) {
+  for (const name of npc.spells ?? []) npc.cooldowns[name] = Math.max((npc.cooldowns[name] ?? 0) - dt, 0);
+  if (npc.attacks) attack(npc, dt);
+  // (No new spells while standing in falling swords: getting out comes first.)
+  // (Only healing is cast outside combat.)
+  if (!npc.casting && npc.spells && !outsideStorms({ ...npc.position })) {
+    const enemy = nearest(npc, livingEnemies());
+    const name = npc.spells.find((s) => {
+      const target = spellTarget(npc, SPELLS[s], enemy);
+      return npc.cooldowns[s] === 0 && target && canCast(npc, SPELLS[s], target) && (combat.active || SPELLS[s].heal);
+    });
+    if (name) {
+      const spell = SPELLS[name], target = spellTarget(npc, spell, enemy);
+      npc.casting = { spell, target, time: 0, landed: false };
+      npc.cooldowns[name] = spell.cooldown;
+      renderer.npcGesture(npc.view, target === npc ? spell.selfGesture : spell.gesture);
+      if (spell.heal) playHealing(); else if (spell.shield) playShield(); else if (spell.radius) playSummon(); else playSwing();
+    }
+  }
+  if (!npc.casting) return null;
+
+  const cast = npc.casting;
+  cast.time += dt;
+  if (!cast.landed && cast.time >= cast.spell.impact) {
+    cast.landed = true;
+    if (cast.spell.heal || cast.spell.shield) {
+      // A touch spell lands if they're still within touch (or it's the caster).
+      const { target } = cast;
+      if (!target.dead && (target === npc || distanceBetween(npc.position, target.position) <= cast.spell.range * 1.5)) {
+        if (cast.spell.heal) {
+          target.health = Math.min(target.health + target.maxHealth * cast.spell.heal, target.maxHealth);
+          renderer.healingLight(target.position);
+        } else {
+          target.shieldTime = cast.spell.shield;
+        }
+      }
+    } else if (cast.spell.bite !== undefined) {
+      // An enemy's attack: it only lands if the victim is still within reach.
+      if (!cast.target.dead && distanceBetween(npc.position, cast.target.position) <= cast.spell.range * 1.3) {
+        hurt(cast.target, cast.spell.damage);
+        const at = cast.target.position;
+        renderer.bloodSpatter({ x: (at.x * 2 + npc.position.x) / 3, y: at.y + (cast.spell.bite ? 1.45 : 1.2), z: (at.z * 2 + npc.position.z) / 3 });
+        playWound(cast.spell.bite ? 'bite' : 'scratch');
+      }
+    } else if (cast.spell.radius) {
+      // An area spell falls where the target is now.
+      startStorm(cast.spell, cast.target.position);
+    } else if (!cast.target.dead && distanceBetween(npc.position, cast.target.position) <= cast.spell.range * 1.3) {
+      // (A close-range spell only lands if the target is still there and within reach.)
+      hurt(cast.target, cast.spell.damage);
+      const at = cast.target.position;
+      renderer.smiteBurst({ x: (at.x + npc.position.x) / 2, y: at.y + 1.3, z: (at.z + npc.position.z) / 2 });
+      playSmite();
+    }
+  }
+  if (cast.time >= cast.spell.duration) npc.casting = null;
+  return cast.target === npc ? {} : { face: cast.target.position };
+}
+
+// Enemies' attacks, used like spells (see castSpells):
+//   range: how close the victim must be; damage: health taken from them
+//   bite: whether it's a bite (rather than a scratch)
+const ATTACKS = {
+  // A rake of the claws: quick, and more common.
+  scratch: { gesture: 'scratch', range: 1.7, duration: 0.8, impact: SCRATCH_IMPACT, damage: 8, bite: false },
+  // A lunging bite: slower, but it hurts more.
+  bite: { gesture: 'bite', range: 1.6, duration: 1.0, impact: BITE_IMPACT, damage: 14, bite: true },
+};
+
+// In combat, an enemy attacks the nearest member of the party (the player or
+// anyone with them) who's within reach, every so often.
+function attack(npc, dt) {
+  npc.attackTimer = (npc.attackTimer ?? 0.6) - dt;
+  if (npc.casting || !combat.active || npc.attackTimer > 0) return;
+  const target = nearest(npc, livingParty());
+  if (!target) return;
+  const name = npc.attacks[Math.floor(Math.random() * npc.attacks.length)];
+  const move = ATTACKS[name];
+  if (distanceBetween(npc.position, target.position) > move.range) return;
+  npc.casting = { spell: move, target, time: 0, landed: false };
+  npc.attackTimer = move.duration + npc.attackPause[0] + Math.random() * (npc.attackPause[1] - npc.attackPause[0]);
+  renderer.npcGesture(npc.view, move.gesture);
+  if (move.bite) playSnarl(); else playClaw();
+}
+
+// Who a healer would heal: whoever in the party is worst hurt, as a share of
+// their full health, if that's low enough to need it.
+function healingTarget(npc, spell) {
+  let worst = null, worstShare = spell.below;
+  for (const member of livingParty()) {
+    const share = member.health / member.maxHealth;
+    if (share < worstShare) { worst = member; worstShare = share; }
+  }
+  return worst;
+}
+
+// Who a spell would be cast on: healing and shielding go to the party (see
+// healingTarget and shieldTarget), everything else to the nearest enemy.
+function spellTarget(npc, spell, enemy) {
+  if (spell.heal) return healingTarget(npc, spell);
+  if (spell.shield) return combat.active ? shieldTarget(npc, spell) : null;
+  return enemy;
+}
+
+// Who a shield would go on: the unshielded party member nearest an enemy, if
+// one is close enough to be in danger.
+function shieldTarget(npc, spell) {
+  let best = null, bestDistance = spell.threatRange;
+  for (const member of livingParty()) {
+    if (member.shieldTime > 0) continue;
+    for (const enemy of livingEnemies()) {
+      const d = distanceBetween(member.position, enemy.position);
+      if (d < bestDistance) { best = member; bestDistance = d; }
+    }
+  }
+  return best;
+}
+
+// A healer with a touch spell (healing or a shield) ready goes to whoever
+// it's for, to touch them.
+function goToHeal(npc) {
+  const name = npc.spells?.find((s) => (SPELLS[s].heal || SPELLS[s].shield) && npc.cooldowns[s] === 0 && spellTarget(npc, SPELLS[s]));
+  if (!name) return null;
+  const target = spellTarget(npc, SPELLS[name]);
+  if (!target || target === npc) return null;
+  const move = approach(npc, target, null, SPELLS[name].range - 0.2);
+  if (move.goal) outsideStorms(move.goal);
+  return move;
+}
+
+// Whether a spell can be cast at a target from where the caster is: in range,
+// and (for an area spell) with nobody in the party in the way.
+function canCast(npc, spell, target) {
+  if (target === npc) return true; // (on oneself)
+  const d = distanceBetween(npc.position, target.position);
+  if (d > spell.range || d < (spell.minRange ?? 0)) return false;
+  if (!spell.radius) return true;
+  return partyMembers().every((m) => m.dead || distanceBetween(m.position, target.position) > spell.radius + STORM_MARGIN);
+}
+
+// --- Divine Blade storms --------------------------------------------------
+
+// Swords falling on an area: { spell, centre, time, dropped, swords: [{ x, z, landsAt, landed }] }.
+const storms = [];
+const SWORD_FALL_TIME = 0.35; // how long a sword takes to fall
+const STORM_MARGIN = 0.9;     // how far outside a storm party members keep
+
+function startStorm(spell, at) {
+  // (If anyone in the party has come too close to the target since the spell
+  // was begun, the storm falls a little further off, so it misses them.)
+  const centre = { x: at.x, z: at.z };
+  for (const member of partyMembers()) {
+    const d = distanceBetween(member.position, centre);
+    const safe = spell.radius + STORM_MARGIN;
+    if (!member.dead && d < safe) {
+      const ax = d > 1e-3 ? (centre.x - member.position.x) / d : 1, az = d > 1e-3 ? (centre.z - member.position.z) / d : 0;
+      centre.x = member.position.x + ax * safe;
+      centre.z = member.position.z + az * safe;
+    }
+  }
+  const storm = { spell, centre, time: 0, dropped: 0, swords: [] };
+  storms.push(storm);
+  renderer.bladeArea(storm.centre, spell.radius, spell.stormTime + SWORD_FALL_TIME + 0.4);
+}
+
+function updateStorms(dt) {
+  for (const storm of storms) {
+    const { spell } = storm;
+    storm.time += dt;
+    // Drop the swords steadily through the storm.
+    while (storm.dropped < spell.swords && storm.time >= (storm.dropped * spell.stormTime) / spell.swords) {
+      const at = swordTarget(storm);
+      storm.swords.push({ ...at, landsAt: storm.time + SWORD_FALL_TIME, landed: false });
+      renderer.fallingSword(at, SWORD_FALL_TIME);
+      storm.dropped++;
+    }
+    // Each landing sword hurts anyone close to where it hits.
+    for (const sword of storm.swords) {
+      if (sword.landed || storm.time < sword.landsAt) continue;
+      sword.landed = true;
+      playSwordImpact();
+      for (const character of [player, ...NPCS]) {
+        if (!character.dead && distanceBetween(character.position, sword) <= spell.swordReach) hurt(character, spell.swordDamage);
+      }
+    }
+  }
+  // (Finished storms are cleared away.)
+  for (let i = storms.length - 1; i >= 0; i--) {
+    if (storms[i].dropped === storms[i].spell.swords && storms[i].swords.every((s) => s.landed)) storms.splice(i, 1);
+  }
+}
+
+// Where the next sword falls: now and then right on someone caught in the
+// storm, otherwise anywhere in it.
+function swordTarget(storm) {
+  const { centre, spell } = storm;
+  const caught = [player, ...NPCS].filter((c) => !c.dead && distanceBetween(c.position, centre) < spell.radius);
+  if (caught.length && Math.random() < 0.3) {
+    const victim = caught[Math.floor(Math.random() * caught.length)];
+    return { x: victim.position.x + (Math.random() - 0.5) * 0.6, z: victim.position.z + (Math.random() - 0.5) * 0.6 };
+  }
+  const angle = Math.random() * Math.PI * 2, r = spell.radius * Math.sqrt(Math.random());
+  return { x: centre.x + Math.sin(angle) * r, z: centre.z + Math.cos(angle) * r };
+}
+
+// Party members caught in (or at the edge of) a storm get out of it, running.
+function escapeStorms(npc) {
+  const goal = { x: npc.position.x, z: npc.position.z };
+  if (!outsideStorms(goal)) return null;
+  keepOnFloor(goal);
+  return { goal, speed: PLAYER.runSpeed, running: true };
+}
+
+// Moves a point out of any storm (to just beyond its edge). Returns whether it moved.
+function outsideStorms(point) {
+  let moved = false;
+  for (const { centre, spell } of storms) {
+    const d = distanceBetween(point, centre);
+    const safe = spell.radius + STORM_MARGIN;
+    if (d < safe) {
+      const ax = d > 1e-3 ? (point.x - centre.x) / d : 1, az = d > 1e-3 ? (point.z - centre.z) / d : 0;
+      point.x = centre.x + ax * (safe + 0.3);
+      point.z = centre.z + az * (safe + 0.3);
+      moved = true;
+    }
+  }
+  return moved;
+}
+
+// Taking damage: a flinch, or falling down dead when their health runs out.
+// (The player doesn't die yet: their health just stops at zero.) A Shield of
+// Faith takes the edge off it.
+const SHIELD_PROTECTION = 0.5; // the share of damage a shield stops
+
+function hurt(target, damage) {
+  if (target.dead) return;
+  if (target.shieldTime > 0) damage *= 1 - SHIELD_PROTECTION;
+  target.health = Math.max(target.health - damage, 0);
+  if (target.health > 0 || target === player) {
+    renderer.npcFlinch(target.view);
+  } else {
+    target.dead = true;
+    target.casting = null;
+    renderer.npcDie(target.view);
   }
 }
 
@@ -356,13 +720,17 @@ function partyMembers() {
   return [player, ...NPCS.filter((npc) => npc.follows)];
 }
 
+function livingParty() {
+  return partyMembers().filter((member) => !member.dead);
+}
+
 function livingEnemies() {
-  return NPCS.filter((npc) => npc.role === 'enemy' && npc.health > 0);
+  return NPCS.filter((npc) => npc.role === 'enemy' && !npc.dead);
 }
 
 function updateCombat() {
   let closest = Infinity;
-  for (const member of partyMembers()) {
+  for (const member of livingParty()) {
     for (const enemy of livingEnemies()) closest = Math.min(closest, distanceBetween(member.position, enemy.position));
   }
   const active = combat.active ? closest <= COMBAT.endRange : closest < COMBAT.startRange;
@@ -393,6 +761,7 @@ const PLAYER_RADIUS = 0.35;
 // Keep the player from walking into NPCs: push them back out to the NPC's edge.
 function collideWithNpcs(pos) {
   for (const npc of NPCS) {
+    if (npc.dead) continue;
     const dx = pos.x - npc.position.x, dz = pos.z - npc.position.z;
     const distance = Math.hypot(dx, dz);
     const minimum = npc.radius + PLAYER_RADIUS;
@@ -616,6 +985,7 @@ function updatePlayer(dt) {
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
 renderer.addPlayer(player.appearance);
+player.view = renderer.playerModel;
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
 
 // The HUD (see hud.js): the party's health bars, with their portraits, and
@@ -626,10 +996,27 @@ hud.setParty(partyMembers().map((member) => ({
 })));
 hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
 
+// Shields wear off over time; the membrane fades in when one is cast, and
+// flickers as it's about to wear off.
+function updateShields(dt) {
+  for (const character of [player, ...NPCS]) {
+    const before = character.shieldTime;
+    character.shieldTime = character.dead ? 0 : Math.max(character.shieldTime - dt, 0);
+    character.shieldShown ??= 0;
+    const target = character.shieldTime > 0 ? 1 : 0;
+    character.shieldShown += (target - character.shieldShown) * (1 - Math.exp(-6 * dt));
+    let amount = character.shieldShown;
+    if (character.shieldTime > 0 && character.shieldTime < 2) amount *= 0.55 + 0.45 * Math.abs(Math.sin(character.shieldTime * 9));
+    if (before > 0 || amount > 0.01) renderer.setShield(character.view, amount);
+  }
+}
+
 function updateHud() {
   hud.update({
     combat: combat.active,
-    party: partyMembers().map((member) => ({ id: member, health: member.health, maxHealth: member.maxHealth })),
+    party: partyMembers().map((member) => ({
+      id: member, health: member.health, maxHealth: member.maxHealth, effects: { shield: member.shieldTime },
+    })),
     enemies: NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({
       id: npc, health: npc.health, maxHealth: npc.maxHealth, screen: renderer.overHead(npc.view),
     })),
@@ -697,6 +1084,8 @@ function frame(now) {
     verticalSpeed: player.velocityY / PLAYER.jumpSpeed, // +1 at take-off, falling below 0
   }, dt);
   updateCombat();
+  updateStorms(dt);
+  updateShields(dt);
   for (const npc of NPCS) {
     updateNpc(npc, dt);
     renderer.updateNpc(npc.view, npc.position, npc.yaw);

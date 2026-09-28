@@ -377,11 +377,44 @@ function handOutlineMaterial(lineColor, top, armThickness) {
 //   blend:   how widely the wrist is smoothed into the forearm
 //   outline: the body's outline thickness, which the hand's outline matches at the top
 //   key:     identifies the forearm's shape, for reusing meshes
+// The hand can bend at the wrist: set hand.userData.wristBend (x, y, z
+// rotations, radians; x bends it towards the palm, z sideways).
 export function createHand({ sign, skinMaterial, lineColor, wrist }) {
   const geometry = handGeometry(sign, wrist);
-  const hand = new THREE.Mesh(geometry, addHandDetails(skinMaterial, sign, lineColor));
+  const bend = { value: new THREE.Vector3() };
+  const top = geometry.userData.top;
+  const hand = new THREE.Mesh(geometry, bendAtWrist(addHandDetails(skinMaterial, sign, lineColor), bend, top));
   hand.castShadow = true;
   const armThickness = wrist.outline / Math.min(...wrist.scale);
-  hand.add(new THREE.Mesh(geometry, handOutlineMaterial(lineColor, geometry.userData.top, armThickness)));
+  hand.add(new THREE.Mesh(geometry, bendAtWrist(handOutlineMaterial(lineColor, top, armThickness), bend, top)));
+  hand.userData.wristBend = bend.value;
+  hand.userData.bendWrist = (material) => bendAtWrist(material, bend, top); // (for anything drawn over the hand)
   return hand;
+}
+
+// Bends a hand material's mesh at the wrist: the hand turns about the wrist,
+// easing into the bend over the wrist itself, so the stub of forearm above it
+// stays in line with the arm (and the join stays hidden).
+function bendAtWrist(material, bend, top) {
+  const before = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    before?.(shader, renderer);
+    shader.uniforms.wristBend = bend;
+    shader.vertexShader = `uniform vec3 wristBend;
+mat3 wristRotation(float y) {
+  // (Full below the wrist, fading to none up the stub.)
+  vec3 a = wristBend * (1.0 - smoothstep(-0.03, ${(top * 0.7).toFixed(4)}, y));
+  float cx = cos(a.x), sx = sin(a.x), cy = cos(a.y), sy = sin(a.y), cz = cos(a.z), sz = sin(a.z);
+  mat3 rx = mat3(1.0, 0.0, 0.0, 0.0, cx, sx, 0.0, -sx, cx);
+  mat3 ry = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
+  mat3 rz = mat3(cz, sz, 0.0, -sz, cz, 0.0, 0.0, 0.0, 1.0);
+  return rx * ry * rz;
+}
+${shader.vertexShader
+    .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+  objectNormal = wristRotation(position.y) * objectNormal;`)
+    .replace('#include <project_vertex>', `transformed = wristRotation(position.y) * transformed;
+  #include <project_vertex>`)}`;
+  };
+  return material;
 }

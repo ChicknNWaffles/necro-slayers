@@ -73,7 +73,125 @@ const GESTURES = {
     ],
   },
 };
+// The moment a smite's blow lands (seconds into the gesture).
+export const SMITE_IMPACT = 0.42;
+// The moment an invocation calls down its spell (seconds into the gesture).
+export const INVOKE_IMPACT = 0.6;
+// The moment a healing touch (on someone else, or on one's own chest) takes effect.
+export const HEAL_IMPACT = 0.75;
+// The moments a zombie's scratch and bite connect (seconds into the gesture).
+export const SCRATCH_IMPACT = 0.36;
+export const BITE_IMPACT = 0.5;
+
+// Gestures can also have tracks of [time, value] keys for:
+//   glow: how brightly the right hand glows (0-1), e.g. for a spell
+//   lean: how far the body leans forwards (radians)
+//   mouth: how wide the mouth opens (0-1)
+//   wrist: how the right hand bends at the wrist ([time, [x, y, z]] keys; x
+//          bends it towards the palm, z sideways)
+// and keyframes can carry the left arm too: [time, shoulder, elbow, head,
+// left shoulder, left elbow] (given as for the right side; they're mirrored).
+// ease: [in, out] seconds to blend into and out of it (see GESTURE_EASE).
+Object.assign(GESTURES, {
+  // Smite (a spell): the hand lights up as the arm swings up and back over
+  // the shoulder, then whacks down and forwards onto the target (the moment
+  // of the hit is SMITE_IMPACT), leaning into the blow, and the glow fades.
+  smite: {
+    duration: 0.95,
+    keys: [
+      [0.0, [0.3, 0, 0.25], [0.4, 0, 0], [0, 0]],
+      [0.3, [2.8, 0, 0.35], [1.3, 0, 0], [-0.08, 0]],
+      [0.42, [1.25, 0, 0.2], [0.15, 0, 0], [0.1, 0]],
+      [0.55, [0.8, 0, 0.2], [0.2, 0, 0], [0.12, 0]],
+      [0.95, [0.4, 0, 0.25], [0.3, 0, 0], [0, 0]],
+    ],
+    glow: [[0, 0], [0.12, 0.35], [0.3, 1], [0.5, 1], [0.85, 0]],
+    lean: [[0, 0], [0.3, -0.06], [0.44, 0.2], [0.6, 0.15], [0.95, 0]],
+  },
+  // Invoking (a spell called down from the sky, e.g. Divine Blade): the arm
+  // reaches straight up, hand glowing, the head tipped back to look up, and
+  // then sweeps down to point at where the spell will fall (at INVOKE_IMPACT).
+  invoke: {
+    duration: 1.2,
+    keys: [
+      [0.0, [0.3, 0, 0.25], [0.3, 0, 0], [0, 0]],
+      [0.35, [3.0, 0, 0.12], [0.1, 0, 0], [-0.3, 0]],
+      [0.5, [3.05, 0, 0.1], [0.05, 0, 0], [-0.3, 0]],
+      [0.62, [1.5, 0, 0.1], [0.05, 0, 0], [0.05, 0]],
+      [0.9, [1.45, 0, 0.1], [0.05, 0, 0], [0.05, 0]],
+      [1.2, [0.4, 0, 0.25], [0.3, 0, 0], [0, 0]],
+    ],
+    glow: [[0, 0], [0.2, 0.6], [0.4, 1], [0.75, 1], [1.1, 0]],
+    lean: [[0, 0], [0.4, -0.08], [0.62, 0.06], [1.2, 0]],
+  },
+  // Healing someone (Divine Restoration): reaching out and resting the
+  // glowing hand on them, holding it there a moment while the light flows
+  // in (from HEAL_IMPACT), head bowed a little.
+  healTouch: {
+    duration: 1.5,
+    keys: [
+      [0.0, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+      [0.45, [1.2, -0.25, 0.05], [0.35, 0.9, 0], [-0.1, 0]],
+      [1.15, [1.2, -0.25, 0.05], [0.35, 0.9, 0], [-0.15, 0]],
+      [1.5, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+    ],
+    glow: [[0, 0], [0.3, 0.5], [0.7, 1], [1.15, 0.9], [1.45, 0]],
+    lean: [[0, 0], [0.45, 0.1], [1.15, 0.1], [1.5, 0]],
+  },
+  // Healing oneself: laying the glowing hand flat on one's own chest, head
+  // bowed, for a moment.
+  healSelf: {
+    duration: 1.5,
+    keys: [
+      [0.0, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+      // (The forearm turned so the palm faces the chest, the fingers towards
+      // the other shoulder; the elbow brought forwards so the forearm passes
+      // in front of the breast; and the wrist bent back so the hand lies along
+      // its curve.)
+      [0.45, [0.35, 0.95, 0], [1.95, -0.4, 0], [-0.25, 0]],
+      [1.15, [0.35, 0.95, 0], [1.95, -0.4, 0], [-0.3, 0]],
+      [1.5, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+    ],
+    glow: [[0, 0], [0.3, 0.4], [0.7, 0.7], [1.15, 0.6], [1.45, 0]], // (softer, so close to the body)
+    wrist: [[0, [0, 0, 0]], [0.45, [0, 0, -0.7]], [1.15, [0, 0, -0.7]], [1.5, [0, 0, 0]]],
+  },
+  // Shielding someone (Shield of Faith) is cast the same way as healing: a
+  // touch, or a hand on one's own chest (set below).
+  // A zombie's scratch: the arm rears up and out, then rakes down and across
+  // in front of it (at SCRATCH_IMPACT), lunging a little into it.
+  scratch: {
+    duration: 0.8,
+    ease: [0.12, 0.25],
+    keys: [
+      [0.0, [1.3, 0, 0.1], [0.35, 0, 0], [0, 0]],
+      [0.25, [2.4, 0.2, 0.55], [1.1, 0, 0], [-0.1, 0.1]],
+      [0.36, [1.4, -0.1, -0.05], [0.3, 0, 0], [0.1, -0.1]],
+      [0.5, [0.7, -0.2, -0.35], [0.4, 0, 0], [0.1, -0.15]],
+      [0.8, [1.3, 0, 0.1], [0.35, 0, 0], [0, 0]],
+    ],
+    lean: [[0, 0], [0.25, -0.05], [0.38, 0.18], [0.8, 0]],
+  },
+  // A zombie's bite: it rears back, then lunges in with its jaws wide open,
+  // both hands grabbing at its victim, and bites down (at BITE_IMPACT).
+  bite: {
+    duration: 1.0,
+    ease: [0.15, 0.3],
+    keys: [
+      [0.0, [1.3, 0, 0.1], [0.35, 0, 0], [0, 0], [1.3, 0, 0.1], [0.35, 0, 0]],
+      [0.3, [1.7, 0, 0.35], [0.2, 0, 0], [-0.25, 0], [1.7, 0, 0.35], [0.2, 0, 0]],
+      [0.5, [1.35, 0.1, -0.2], [1.0, 0, 0], [0.3, 0], [1.35, 0.1, -0.2], [1.0, 0, 0]],
+      [0.72, [1.35, 0.1, -0.2], [1.0, 0, 0], [0.25, 0], [1.35, 0.1, -0.2], [1.0, 0, 0]],
+      [1.0, [1.3, 0, 0.1], [0.35, 0, 0], [0, 0], [1.3, 0, 0.1], [0.35, 0, 0]],
+    ],
+    lean: [[0, 0], [0.3, -0.12], [0.5, 0.3], [0.72, 0.28], [1.0, 0]],
+    mouth: [[0, 0], [0.25, 0.6], [0.45, 1], [0.52, 0.1], [0.7, 0.15], [0.9, 0]],
+  },
+});
+GESTURES.shieldTouch = GESTURES.healTouch;
+GESTURES.shieldSelf = GESTURES.healSelf;
 const GESTURE_EASE = { in: 0.25, out: 0.3 }; // seconds to blend into and out of a gesture
+const FLINCH_TIME = 0.35;  // how long a flinch from being hit lasts
+const FALL_TIME = 0.8;     // how long it takes to fall down dead
 
 export class CharacterAnimator {
   constructor() {
@@ -139,6 +257,7 @@ export class CharacterAnimator {
 
     this.jump(joints, { onGround, verticalSpeed }, dt);
     this.playGesture(joints, dt);
+    this.reactions(joints, dt);
   }
 
   // Start a gesture (see GESTURES), replacing any that is playing.
@@ -146,8 +265,43 @@ export class CharacterAnimator {
     if (GESTURES[name]) this.current = { gesture: GESTURES[name], time: 0 };
   }
 
+  // Being hit: the body jolts back and the head snaps back, briefly.
+  flinch() {
+    this.flinchTime = 0;
+  }
+
+  // Dying: falling over backwards, and lying there.
+  die() {
+    this.deathTime = 0;
+  }
+
+  // (Played after everything else, on top of it.)
+  reactions(joints, dt) {
+    if (this.flinchTime !== undefined && this.flinchTime < FLINCH_TIME) {
+      this.flinchTime += dt;
+      const f = Math.sin(Math.PI * Math.min(this.flinchTime / FLINCH_TIME, 1));
+      joints.root.rotation.x += 0.22 * f;
+      joints.head.rotation.x -= 0.25 * f;
+    }
+    if (this.deathTime !== undefined) {
+      this.deathTime += dt;
+      const f = Math.min(this.deathTime / FALL_TIME, 1);
+      const fall = f * f; // (speeding up as it goes)
+      joints.root.rotation.x = fall * (Math.PI / 2 - 0.04);
+      joints.root.position.y = 0.12 * fall; // (so the back rests on the floor rather than in it)
+      joints.head.rotation.x = -0.3 * fall;
+      // (The arms go limp, dropping to the sides.)
+      for (const side of ['left', 'right']) {
+        joints[`${side}Shoulder`].rotation.x *= 1 - fall;
+        joints[`${side}Elbow`].rotation.x *= 1 - 0.8 * fall;
+      }
+    }
+  }
+
   playGesture(joints, dt) {
     this.mouthOpen = 0; // (how open the mouth is, 0-1)
+    this.handGlow = 0;  // (how brightly the right hand glows, 0-1)
+    joints.rightWrist?.rotation.set(0, 0, 0);
     if (!this.current) return;
     const { gesture } = this.current;
     const t = (this.current.time += dt);
@@ -156,22 +310,33 @@ export class CharacterAnimator {
       return;
     }
     if (gesture.speech) this.mouthOpen = mouthOpening(gesture.speech, t);
+    if (gesture.mouth) this.mouthOpen = track(gesture.mouth, t);
+    if (gesture.glow) this.handGlow = track(gesture.glow, t);
     // Where the keyframes put the arm and head now (easing between keys).
     const { keys } = gesture;
     let k = 1;
     while (k < keys.length - 1 && keys[k][0] < t) k++;
     const [t0, ...a] = keys[k - 1], [t1, ...b] = keys[k];
     const f = smoothstep(Math.min(Math.max((t - t0) / (t1 - t0), 0), 1));
-    const [shoulder, elbow, head] = a.map((v, i) => v.map((x, j) => x + (b[i][j] - x) * f));
+    const [shoulder, elbow, head, leftShoulder, leftElbow] = a.map((v, i) => v.map((x, j) => x + (b[i][j] - x) * f));
     // Blended over the normal movement, easing in and out.
-    const w = smoothstep(Math.min(t / GESTURE_EASE.in, 1)) * smoothstep(Math.min((gesture.duration - t) / GESTURE_EASE.out, 1));
+    const [easeIn, easeOut] = gesture.ease ?? [GESTURE_EASE.in, GESTURE_EASE.out];
+    const w = smoothstep(Math.min(t / easeIn, 1)) * smoothstep(Math.min((gesture.duration - t) / easeOut, 1));
     const blend = (rotation, [x, y, z]) => rotation.set(
       rotation.x + (x - rotation.x) * w, rotation.y + (y - rotation.y) * w, rotation.z + (z - rotation.z) * w,
     );
     blend(joints.rightShoulder.rotation, shoulder);
     blend(joints.rightElbow.rotation, elbow);
+    const mirror = ([x, y, z]) => [x, -y, -z];
+    if (leftShoulder) blend(joints.leftShoulder.rotation, mirror(leftShoulder));
+    if (leftElbow) blend(joints.leftElbow.rotation, mirror(leftElbow));
     joints.head.rotation.x += head[0] * w;
     joints.head.rotation.y += head[1] * w;
+    if (gesture.lean) joints.root.rotation.x -= track(gesture.lean, t) * w;
+    if (gesture.wrist && joints.rightWrist) {
+      const keysOf = (axis) => gesture.wrist.map(([time, v]) => [time, v[axis]]);
+      joints.rightWrist.rotation.set(track(keysOf(0), t) * w, track(keysOf(1), t) * w, track(keysOf(2), t) * w);
+    }
   }
 
   // Jumping: blended in while airborne, on top of the cycles above (which fade
@@ -207,4 +372,16 @@ export class CharacterAnimator {
 
 function smoothstep(t) {
   return t * t * (3 - 2 * t);
+}
+
+// The value of a track of [time, value] keys at time t (eased between keys).
+function track(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let k = 1; k < keys.length; k++) {
+    if (t <= keys[k][0]) {
+      const [t0, v0] = keys[k - 1], [t1, v1] = keys[k];
+      return v0 + (v1 - v0) * smoothstep((t - t0) / (t1 - t0));
+    }
+  }
+  return keys[keys.length - 1][1];
 }
