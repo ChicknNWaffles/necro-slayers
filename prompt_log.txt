@@ -347,3 +347,15 @@ the final mage spell is "Burning Ground", which turns the ground in a set area i
 please make the edges of the area of the ground effected by Burning Ground more uneven and rough, so it  doesn't look like a perfect circle
 
 please commit the changes
+
+please significantly increase the zombie's health so that they don't die so quickly, but not too much as there will be multiple of them in every encounter
+
+please get rid of the "file, window, " etc. line on the app, since this is a game and not a utility software
+
+please alter Evalyn's behavior so that she prioritizes healing and protecting other characters over doing so to herself, and both of those over attacking. This is more fitting with her character as she is timid and her primary motivation is to help/take care of people
+
+please run the game so I can test it
+
+please make it so that the player can also switch between spells/abilities with the scroll wheel in addition to the existing number buttons system. Also, the leach for leach bomb is staying in the air if the target dies before it explodes. Please make it stay on the body of the target as the body goes down
+
+please commit the changes and then run the game so I can test the scroll wheele

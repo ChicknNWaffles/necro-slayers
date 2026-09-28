@@ -1,5 +1,5 @@
 // Electron main process: creates the app window and loads the game page.
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 
 // Capture the mouse for the game. Browsers only allow pointer lock after a
@@ -16,6 +16,7 @@ function createWindow() {
     width: 1280,
     height: 720,
     backgroundColor: '#ffffff',
+    autoHideMenuBar: true, // (a game has no menu bar -- see below)
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -26,6 +27,11 @@ function createWindow() {
   win.removeMenu();
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
 }
+
+// No "File, Edit, View, Window..." menu bar: this is a game, not a utility.
+// (Removing the application menu stops Electron adding its default one to
+// every window.)
+Menu.setApplicationMenu(null);
 
 app.whenReady().then(() => {
   createWindow();

@@ -198,7 +198,7 @@ const NPCS = [
     follows: false,
     wanderSpeed: 1.2,
     chaseSpeed: 1.8,
-    maxHealth: 60,
+    maxHealth: 140, // (enough to take a few hits from anyone, as encounters will have several)
     attacks: ['scratch', 'scratch', 'bite'], // (picked at random: scratching more often than biting)
     attackPause: [1.2, 2.2], // seconds between attacks
   },
@@ -955,7 +955,8 @@ const SPELLS = {
   divineRestoration: {
     label: 'Divine Restoration', gesture: 'healTouch', selfGesture: 'healSelf', range: 1.05, cooldown: 7, duration: 1.5, impact: HEAL_IMPACT,
     heal: 0.35,
-    below: 0.6, // (only cast on someone below this share of their health)
+    below: 0.7,     // (only cast on someone else below this share of their health...)
+    selfBelow: 0.45, // (...or on herself, below this -- she puts others first)
   },
   // Shield of Faith: magical armour, laid on by touch like healing. The
   // healer shields whoever in the party is closest to an enemy (and not
@@ -1048,8 +1049,17 @@ function castSpells(npc, dt) {
   // (Only healing is cast outside combat.)
   if (!npc.casting && npc.spells && !outsideStorms({ ...npc.position })) {
     const enemy = nearest(npc, livingEnemies());
+    // (Looking after the party comes before attacking: while someone needs
+    // healing or protecting and it's ready, she doesn't attack -- she goes to
+    // them instead (see goToHeal).)
+    // And someone else needing her comes before herself.
+    const support = (s) => SPELLS[s].heal || SPELLS[s].shield;
+    const needs = npc.spells.filter((s) => support(s) && npc.cooldowns[s] === 0).map((s) => spellTarget(npc, SPELLS[s])).filter(Boolean);
+    const supportNeeded = needs.length > 0, othersNeed = needs.some((t) => t !== npc);
     const name = npc.spells.find((s) => {
+      if (supportNeeded && !support(s)) return false;
       const target = spellTarget(npc, SPELLS[s], enemy);
+      if (othersNeed && target === npc) return false;
       return npc.cooldowns[s] === 0 && target && canCast(npc, SPELLS[s], target) && (combat.active || SPELLS[s].heal);
     });
     if (name) {
@@ -1158,12 +1168,17 @@ function attack(npc, dt) {
 
 // Who a healer would heal: whoever in the party is worst hurt, as a share of
 // their full health, if that's low enough to need it.
+// (A healer looks after others first: she heals them sooner -- see `below` --
+// and only tends to herself when no one else needs it and she's worse off
+// -- see `selfBelow`.)
 function healingTarget(npc, spell) {
   let worst = null, worstShare = spell.below;
   for (const member of livingParty()) {
+    if (member === npc) continue;
     const share = member.health / member.maxHealth;
     if (share < worstShare) { worst = member; worstShare = share; }
   }
+  if (!worst && npc.health / npc.maxHealth < (spell.selfBelow ?? spell.below)) worst = npc;
   return worst;
 }
 
@@ -1177,22 +1192,26 @@ function spellTarget(npc, spell, enemy) {
 
 // Who a shield would go on: the unshielded party member nearest an enemy, if
 // one is close enough to be in danger.
+// (Others first; herself only if no one else is in danger.)
 function shieldTarget(npc, spell) {
   let best = null, bestDistance = spell.threatRange;
   for (const member of livingParty()) {
-    if (member.shieldTime > 0) continue;
+    if (member.shieldTime > 0 || member === npc) continue;
     for (const enemy of livingEnemies()) {
       const d = distanceBetween(member.position, enemy.position);
       if (d < bestDistance) { best = member; bestDistance = d; }
     }
   }
+  if (!best && npc.shieldTime <= 0 && livingEnemies().some((enemy) => distanceBetween(npc.position, enemy.position) < spell.threatRange)) best = npc;
   return best;
 }
 
 // A healer with a touch spell (healing or a shield) ready goes to whoever
 // it's for, to touch them.
 function goToHeal(npc) {
-  const name = npc.spells?.find((s) => (SPELLS[s].heal || SPELLS[s].shield) && npc.cooldowns[s] === 0 && spellTarget(npc, SPELLS[s]));
+  // (Someone else first -- see castSpells.)
+  const ready = (npc.spells ?? []).filter((s) => (SPELLS[s].heal || SPELLS[s].shield) && npc.cooldowns[s] === 0 && spellTarget(npc, SPELLS[s]));
+  const name = ready.find((s) => spellTarget(npc, SPELLS[s]) !== npc) ?? ready[0];
   if (!name) return null;
   const target = spellTarget(npc, SPELLS[name]);
   if (!target || target === npc) return null;
@@ -2043,6 +2062,16 @@ document.addEventListener('mousedown', (e) => {
     }
   }
 });
+
+// The scroll wheel steps through the player's spells (or abilities), as the
+// number keys choose them -- wrapping round from the last to the first.
+document.addEventListener('wheel', (e) => {
+  if (document.pointerLockElement !== renderer.canvas || !e.deltaY) return;
+  const count = playerSlots().length;
+  if (count < 2) return;
+  selectSpell((player.selectedSpell + Math.sign(e.deltaY) + count) % count);
+  setPlayerBlocking(false);
+}, { passive: true });
 
 document.addEventListener('mouseup', (e) => {
   if (e.button === LEFT_MOUSE_BUTTON) setPlayerBlocking(false);

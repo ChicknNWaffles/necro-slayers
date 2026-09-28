@@ -816,10 +816,14 @@ export class GameRenderer {
   // gets ready to burst (over `fuse` seconds). Returns it, for popLeech.
   attachLeech(model, fuse) {
     const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    // (It clings to the body itself -- the root of its skeleton -- so it moves
+    // with it: leaning, twisting, and falling with it if they die. The
+    // skeleton is scaled with the character, so it's placed in its units.)
     const leech = new THREE.Group();
-    leech.position.set(0.02, 1.3, -0.22);
+    const bodyScale = model.body.scale.x / (model.height ?? 1); // (the skeleton's units, per world unit at normal height)
+    leech.position.set(0.02 / bodyScale, 1.3 / bodyScale, -0.22 / bodyScale);
     leech.rotation.z = 0.4;
-    leech.scale.setScalar(1.5 * (model.height ?? 1));
+    leech.scale.setScalar(1.5 / bodyScale);
     const body = new THREE.Group();
     const sacs = [];
     for (let i = 0; i < 6; i++) {
@@ -837,9 +841,9 @@ export class GameRenderer {
       }
     }
     leech.add(body);
-    // (It rides on the root of the body, so it moves with them.)
-    model.root.add(leech);
-    this.sparks(model.root.localToWorld(leech.position.clone()), 8, 0.35, { color: '#6a8a20', glow: false, size: 0.05 });
+    model.joints.root.add(leech);
+    model.root.updateMatrixWorld(true);
+    this.sparks(leech.getWorldPosition(new THREE.Vector3()), 8, 0.35, { color: '#6a8a20', glow: false, size: 0.05 });
     leech.userData.alive = true;
     this.addEffect({
       group: leech,
@@ -863,7 +867,7 @@ export class GameRenderer {
   // The leech bursting: a sickly green-and-purple blast, and a spray of goo.
   // Returns where it was, in the world.
   popLeech(leech, radius) {
-    const at = leech.parent ? leech.parent.localToWorld(leech.position.clone()) : leech.position.clone();
+    const at = leech.getWorldPosition(new THREE.Vector3());
     leech.userData.alive = false;
     leech.parent?.remove(leech);
     const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
