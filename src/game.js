@@ -11,7 +11,7 @@ import {
   SHORTBOW_RELEASE, LONGBOW_RELEASE, CROSSBOW_RELEASE, CROSSBOW_RELOAD, FIREBALL_RELEASE, VINES_RISE, SHOVE_RELEASE, LEECH_PLANT,
 } from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
-import { createZombie } from './enemies.js';
+import { createZombie, createSkeleton } from './enemies.js';
 import { Hud } from './hud.js';
 
 // --- World ---------------------------------------------------------------
@@ -202,6 +202,11 @@ const NPCS = [
     attacks: ['scratch', 'scratch', 'bite'], // (picked at random: scratching more often than biting)
     attackPause: [1.2, 2.2], // seconds between attacks
   },
+  // Skeletons (random characters, see enemies.js): bare bones in a torn
+  // shirt, quicker than zombies, each armed with a sword or a short bow --
+  // which work for them just as they do for the player.
+  skeleton({ x: -9, z: -12 }),
+  skeleton({ x: 13, z: 3 }),
 ].map((npc) => ({
   ...npc,
   health: npc.maxHealth,
@@ -221,6 +226,33 @@ const NPCS = [
   moveSpeed: 0,
   running: false,
 }));
+
+// A skeleton to put in the world at a spot.
+function skeleton(position) {
+  const { appearance, decay, weapon } = createSkeleton();
+  return {
+    name: 'Skeleton',
+    role: 'enemy',
+    appearance,
+    decay,
+    undead: true,
+    skeletal: true,
+    weapons: [weapon],
+    position: { x: position.x, y: FLOOR.y, z: position.z },
+    yaw: Math.random() * Math.PI * 2,
+    radius: 0.4,
+    follows: false,
+    wanderSpeed: 1.8,
+    chaseSpeed: 3.2,
+    maxHealth: 110,
+    // Their weapon's moves (see MOVES), picked at random -- and for an
+    // archer, how far off they like to keep.
+    attacks: weapon === 'sword' ? ['stab', 'slash'] : ['shortbowShot'],
+    attackPause: weapon === 'sword' ? [1.4, 2.4] : [1.6, 2.8], // (a pause between blows or shots, so a few of them together aren't overwhelming)
+    keepAway: weapon === 'shortbow' ? [6, 12] : null,
+    aimError: 0.045, // (extra stray on their shots, radians -- they're not crack shots)
+  };
+}
 
 const NPC_MOVE = {
   wanderSpeed: 4,       // a stroll
@@ -380,10 +412,13 @@ const ARROW_GRAVITY = 6;  // (a little drop -- aimed for, so they still pass thr
 
 // Loosing an arrow (or bolt) at whatever's under the crosshair (up to the
 // bow's range), from the archer's bow. Bows stray a little; a crossbow doesn't.
-function shoot(shooter, move) {
+// (The player shoots at the crosshair; anyone else at `at`, a character --
+// their chest.)
+function shoot(shooter, move, at = null) {
   const shot = move.shot;
-  const ray = renderer.aimRay();
-  const target = aimPoint(ray, shooter, shot.range);
+  const target = at
+    ? { x: at.position.x, y: at.position.y + 1.2, z: at.position.z }
+    : aimPoint(renderer.aimRay(), shooter, shot.range);
   // (From in front of the chest: the bow, or the hands.)
   const ahead = shot.fireball ? 0.75 : 0.45;
   const from = {
@@ -393,15 +428,17 @@ function shoot(shooter, move) {
   };
   let dx = target.x - from.x, dy = target.y - from.y, dz = target.z - from.z;
   const distance = Math.hypot(dx, dy, dz);
-  [dx, dy, dz] = jitter([dx / distance, dy / distance, dz / distance], shot.jitter);
+  [dx, dy, dz] = jitter([dx / distance, dy / distance, dz / distance], shot.jitter + (shooter.aimError ?? 0));
   // (Aimed a touch high, so that it drops back onto the line by the target.)
   const time = distance / shot.speed;
   const gravity = shot.gravity ?? ARROW_GRAVITY;
   const velocity = { x: dx * shot.speed, y: dy * shot.speed + 0.5 * gravity * time, z: dz * shot.speed };
   const view = shot.fireball ? renderer.addFireball() : renderer.addArrow(shot.arrow);
-  arrows.push({ from, position: { ...from }, velocity, travelled: 0, shot, shooter, view });
+  // (What it can hit: the enemies, if it's the party shooting; the party, if an enemy.)
+  const foes = partyMembers().includes(shooter) ? livingEnemies : livingParty;
+  arrows.push({ from, position: { ...from }, velocity, travelled: 0, shot, shooter, view, foes });
   if (!shot.fireball) playSwing({ volume: 0.12 });
-  if (move.reload) {
+  if (move.reload && shooter === player) {
     player.loaded = false;
     renderer.setPlayerLoaded(false);
   }
@@ -461,11 +498,12 @@ function updateArrows(dt) {
     arrow.travelled += Math.hypot(p.x - start.x, p.y - start.y, p.z - start.z);
     renderer.moveArrow(arrow.view, p, v);
     // Hitting an enemy (anywhere along this frame's flight)...
-    const hit = livingEnemies().find((enemy) => {
+    const hit = arrow.foes().find((foe) => {
+      if (foe === arrow.shooter) return false;
       for (let k = 0; k <= 4; k++) {
         const x = start.x + (p.x - start.x) * (k / 4), y = start.y + (p.y - start.y) * (k / 4), z = start.z + (p.z - start.z) * (k / 4);
-        const h = y - enemy.position.y;
-        if (Math.hypot(x - enemy.position.x, z - enemy.position.z) < enemy.radius + 0.05 && h > 0 && h < 1.9) return true;
+        const h = y - foe.position.y;
+        if (Math.hypot(x - foe.position.x, z - foe.position.z) < (foe.radius ?? PLAYER_RADIUS) + 0.05 && h > 0 && h < 1.9) return true;
       }
       return false;
     });
@@ -480,9 +518,11 @@ function updateArrows(dt) {
       renderer.endArrow(arrow.view, { stick: false });
       arrows.splice(i, 1);
     } else if (hit) {
-      hurt(hit, shot.damage, arrow.shooter);
-      renderer.bloodSpatter({ x: p.x, y: p.y, z: p.z });
-      playWeaponHit('blade', { volume: 0.25 });
+      const blocked = hurt(hit, shot.damage, arrow.shooter); // (a raised shield can stop an arrow)
+      if (!blocked) {
+        hitEffect(hit, { x: p.x, y: p.y, z: p.z });
+        playWeaponHit('blade', { volume: 0.25 });
+      }
       renderer.endArrow(arrow.view, { stick: false });
       arrows.splice(i, 1);
     } else if (shot.fireball && p.y <= FLOOR.y) {
@@ -567,10 +607,17 @@ function strike(attacker, move) {
     const at = { x: foe.position.x - (dx / (d || 1)) * 0.3, y: foe.position.y + 1.2, z: foe.position.z - (dz / (d || 1)) * 0.3 };
     if (blocked) continue;
     playWeaponHit(move.sound);
-    if (foe.undead || foe.role === 'enemy') renderer.bloodSpatter(at); else renderer.weaponSparks(at);
+    hitEffect(foe, at);
     if (move.knockback) knockBack(foe, dx / (d || 1), dz / (d || 1), move.knockback);
     if (move.stun) stun(foe, move.stun);
   }
+}
+
+// Where a blow or an arrow lands on someone: chips of bone off a skeleton,
+// blood from anyone else.
+function hitEffect(character, at) {
+  if (character.skeletal) renderer.boneChips(at);
+  else renderer.bloodSpatter(at);
 }
 
 // Knocked back: thrown a distance away (in direction dx, dz), sliding to a
@@ -718,7 +765,11 @@ function chooseMove(npc, dt) {
   if (casting) return casting;
   if (npc.role === 'enemy') {
     // Enemies go after the nearest party member in combat, and wander otherwise.
-    if (combat.active) return approach(npc, nearest(npc, livingParty()), npc.chaseSpeed ?? npc.wanderSpeed);
+    if (combat.active) {
+      const target = nearest(npc, livingParty());
+      if (npc.keepAway) return keepAtRange(npc, target, npc.keepAway);
+      return approach(npc, target, npc.chaseSpeed ?? npc.wanderSpeed);
+    }
     return wander(npc, dt);
   }
   // A healer goes to whoever needs healing (see Divine Restoration)...
@@ -782,6 +833,22 @@ function approach(npc, target, speed = null, reach = COMBAT.reach) {
     z: npc.position.z + (target.position.z - npc.position.z) * k,
   };
   return { goal, speed: s, running, face: target.position };
+}
+
+// An archer keeping their distance from a target: coming closer if they're
+// out of range, backing away if the target gets too close, and otherwise
+// standing their ground, facing them. range: [nearest, furthest].
+function keepAtRange(npc, target, [near, far]) {
+  if (!target) return {};
+  const d = distanceBetween(npc.position, target.position) || 1e-3;
+  const speed = npc.chaseSpeed ?? npc.wanderSpeed;
+  if (d > far) return approach(npc, target, speed, far - 1);
+  if (d < near) {
+    const away = { x: npc.position.x + ((npc.position.x - target.position.x) / d) * 2, z: npc.position.z + ((npc.position.z - target.position.z) / d) * 2 };
+    keepOnFloor(away);
+    return { goal: away, speed, face: target.position };
+  }
+  return { face: target.position };
 }
 
 // In formation: each follower has a place beside and behind the player,
@@ -1128,7 +1195,7 @@ function landSpell(caster, { spell, target }) {
     if (!target || target.dead) return;
     shove(caster, target, spell.shove);
   } else if (spell.shot) {
-    shoot(caster, spell);
+    shoot(caster, spell, caster === player ? null : target);
     if (spell.shot.fireball) playFireball();
   } else if (within(spell.range * 1.3)) {
     // (A close-range spell only lands if the target is still there and within reach.)
@@ -1157,13 +1224,17 @@ function attack(npc, dt) {
   const target = nearest(npc, livingParty());
   if (!target) return;
   const name = npc.attacks[Math.floor(Math.random() * npc.attacks.length)];
-  const move = ATTACKS[name];
-  if (distanceBetween(npc.position, target.position) > move.range) return;
-  if (wallBetween(npc.position, target.position)) return; // (no reaching through a wall)
+  // (A zombie's claws and teeth, or a weapon's moves -- used as the player uses them.)
+  const move = ATTACKS[name] ?? MOVES[name];
+  const reach = move.shot ? move.shot.range : move.range;
+  if (distanceBetween(npc.position, target.position) > reach) return;
+  if (wallBetween(npc.position, target.position)) return; // (no reaching -- or shooting -- through a wall)
   npc.casting = { spell: move, target, time: 0, landed: false };
   npc.attackTimer = move.duration + npc.attackPause[0] + Math.random() * (npc.attackPause[1] - npc.attackPause[0]);
   renderer.npcGesture(npc.view, move.gesture);
-  if (move.bite) playSnarl(); else playClaw();
+  if (move.bite) playSnarl();
+  else if (move.bite === false) playClaw();
+  else if (move.strike) playSwing();
 }
 
 // Who a healer would heal: whoever in the party is worst hurt, as a share of

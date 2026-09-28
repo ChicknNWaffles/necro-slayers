@@ -359,3 +359,9 @@ please run the game so I can test it
 please make it so that the player can also switch between spells/abilities with the scroll wheel in addition to the existing number buttons system. Also, the leach for leach bomb is staying in the air if the target dies before it explodes. Please make it stay on the body of the target as the body goes down
 
 please commit the changes and then run the game so I can test the scroll wheele
+
+please add a new enemy type, the skeleton. The skeleton can still have a shirt on so you don't have to model the complexities of a rib cage. You can simplify the bones in the palm of the hand. The shirts on the skeletons should be ripped the same way the zombies are. The skeletons can have either the sword (no shield) or the short bow. They have an equal chance to spawn with either. All skeletons have one of the two weapons. The weapons work for the skeleton the same as it works for the player.
+
+please make it so that none of the skeletons get breasts, even if they are based on the female model
+
+please commit the changes

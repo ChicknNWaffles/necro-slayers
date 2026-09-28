@@ -88,8 +88,9 @@ export class GameRenderer {
   // yaw: the direction they face (same convention as the player).
   // pose: how they stand when still; decay: for the undead; caster: casts
   // spells (see characterModel.js).
-  addNpc({ appearance, position, yaw, pose, decay, caster }) {
-    const model = new CharacterModel(appearance, { pose, decay, caster });
+  // weapons: the weapons they carry (see weaponModel.js).
+  addNpc({ appearance, position, yaw, pose, decay, caster, weapons = [] }) {
+    const model = new CharacterModel(appearance, { pose, decay, caster, weapons });
     this.scene.add(model.root);
     this.updateNpc(model, position, yaw);
     return model;
@@ -370,6 +371,11 @@ export class GameRenderer {
   // Where a weapon strikes metal (e.g. a blocked blow): bright sparks.
   weaponSparks(position) {
     this.sparks(position, 10, 0.35, { color: '#fff4c8', size: 0.08 });
+  }
+
+  // Where a skeleton is struck: chips of bone flying off.
+  boneChips(position) {
+    this.sparks(position, 10, 0.45, { color: '#e9dfc4', glow: false, size: 0.06 });
   }
 
   // Where a zombie's claws or teeth land: a spatter of dark blood.

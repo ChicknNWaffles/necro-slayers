@@ -14,6 +14,7 @@ import { createFoot } from './footModel.js';
 import { CharacterAnimator } from './characterAnimation.js';
 import { ShieldEffect } from './shieldEffect.js';
 import { createWeapon } from './weaponModel.js';
+import { addSkeletonBones } from './skeletonModel.js';
 import { headGeometry, eyePlacement, addFaceColour, eyeMaterial, headOutlineMaterial } from './headModel.js';
 import { skirtGeometry, sleeveGeometry, SkirtMotion } from './clothingModel.js';
 import { braidGeometry } from './braidModel.js';
@@ -51,7 +52,8 @@ const CLOTH_TOON_STEPS = [178, 222, 255];      // loose clothes: a little strong
 
 export class CharacterModel {
   // pose: how the character stands (see POSES), e.g. 'handsFolded' for an NPC.
-  // decay: makes the character undead -- rot, torn clothes and wounds (see decayModel.js).
+  // decay: makes the character undead -- rot, torn clothes and wounds (see
+  //   decayModel.js). With decay.skeletal, they're a bare skeleton, in a torn shirt.
   // caster: whether they cast spells (their hands can glow, see handGlow) --
   //   true, or the kind of magic: 'holy' (golden, the default) or 'fire'.
   // weapons: the weapons they carry, e.g. ['sword', 'shield'] (see WEAPON_GRIP).
@@ -221,6 +223,11 @@ const POSES = {
     left: { shoulder: [0.7, 0.5, -0.25], elbow: [1.2, 0, 0] },
     whileMoving: true, armSwing: 0,
   },
+  // A sword alone: held ready in the right hand, the left arm free.
+  sword: {
+    right: { shoulder: [0.35, 0, 0.02], elbow: [0.45, 0, 0] },
+    whileMoving: true, armSwing: 0.5,
+  },
   // Bow: carried in the left hand, forearm raised so it's held upright.
   bow: {
     left: { shoulder: [0.3, 0, 0.05], elbow: [1.1, 0, 0] },
@@ -236,6 +243,7 @@ const POSES = {
 
 // The stance for a set of weapons.
 export function weaponStance(weapons) {
+  if (weapons.includes('sword') && !weapons.includes('shield')) return 'sword';
   if (weapons.includes('crossbow')) return 'crossbow';
   if (weapons.includes('shortbow') || weapons.includes('longbow')) return 'bow';
   if (weapons.includes('halberd')) return 'halberd';
@@ -285,7 +293,9 @@ function buildBody(a, poseName = 'stand', decay = null) {
   };
   const root = bone(null, 0, 0, 0);
   const joints = { root, head: bone(root, 0, BODY.neckTop, -0.025) }; // head forward, over the leaning neck
-  const parts = [{ name: 'torso', bone: root, ...torso(w, m) }];
+  // (A skeleton's shirt hangs on bare bones: no breasts, whatever the body type.)
+  const flatChest = Boolean(decay?.skeletal);
+  const parts = [{ name: 'torso', bone: root, ...torso(w, m, flatChest) }];
   for (const side of ['left', 'right']) {
     const sign = side === 'left' ? -1 : 1; // the character's left is -X
     const shoulder = bone(root, sign * BODY.shoulderSpread * w * sexMix(m, 'shoulders'), BODY.shoulderHeight, 0);
@@ -343,7 +353,7 @@ function buildBody(a, poseName = 'stand', decay = null) {
   // Sculpting takes about a second, and only the build changes the sculpt, so
   // recent sculpts are kept and reused (e.g. while a character creator changes colours).
   const woundKey = (decay?.wounds ?? []).map((wd) => `${wd.side}${wd.limb}`).sort().join(',');
-  const key = `${w.toFixed(3)}:${m}:${a.outfit}:${woundKey}`;
+  const key = `${w.toFixed(3)}:${m}:${a.outfit}:${woundKey}:${flatChest}`;
   let geometry = sculptCache.get(key);
   if (!geometry) {
     geometry = meshFromDistance(bodyDistance, sculptBounds(parts), SCULPT_DETAIL);
@@ -363,8 +373,11 @@ function buildBody(a, poseName = 'stand', decay = null) {
   const body = new THREE.Group();
   body.scale.setScalar(a.height * OVERALL_SCALE);
   body.add(root);
+  // (A skeleton keeps only the body's shirt, drawn from both sides as there's
+  // no body inside it -- see clothedSkinMaterial.)
+  const skeletal = Boolean(decay?.skeletal);
   const skin = new THREE.SkinnedMesh(geometry, clothedSkinMaterial(a, decay));
-  const outline = new THREE.SkinnedMesh(geometry, outlineMaterial);
+  const outline = new THREE.SkinnedMesh(geometry, skeletal ? shirtOutlineMaterial : outlineMaterial);
   for (const m of [skin, outline]) {
     m.frustumCulled = false;
     body.add(m);
@@ -375,8 +388,15 @@ function buildBody(a, poseName = 'stand', decay = null) {
   skin.bind(skeleton);
   outline.bind(skeleton);
 
+  // A skeleton's bones (see skeletonModel.js) in place of hands, feet and a head.
+  if (skeletal) {
+    const wrists = addSkeletonBones(joints, BODY, { part, toon });
+    joints.leftWrist = wrists.left;
+    joints.rightWrist = wrists.right;
+  }
+
   // Hands (detailed, see handModel.js) and shoes, carried by their joints.
-  for (const side of ['left', 'right']) {
+  for (const side of skeletal ? [] : ['left', 'right']) {
     const sign = side === 'left' ? -1 : 1;
     const handWidth = 1 + (w - 1) * 0.4; // build affects the hands a little
     const scale = [handWidth * HAND_SCALE, HAND_SCALE, handWidth * HAND_SCALE];
@@ -434,7 +454,7 @@ function buildBody(a, poseName = 'stand', decay = null) {
   const head = new THREE.Group();
   head.scale.setScalar(a.headSize);
   joints.head.add(head);
-  const hair = buildHead(head, a, mats, decay);
+  const hair = skeletal ? {} : buildHead(head, a, mats, decay);
 
   // Bones showing through wounds, carried by the limb's joint.
   for (const wound of decay?.wounds ?? []) {
@@ -926,10 +946,14 @@ ${decay ? `
     float cutFace = 1.0 - smoothstep(0.0015, 0.004, vWound);
     cloth = mix(cloth, fleshColor, cutFace);
     edge *= 1.0 - cutFace;` : ''}
+${decay?.skeletal ? `
+    // A skeleton: nothing but the shirt (the rest is bones -- see skeletonModel.js).
+    if (shirt < 0.5 && shirtLine < 0.5) discard;` : ''}
     diffuseColor.rgb *= mix(cloth, lineColor, edge);
   }`)}`;
   };
-  mat.customProgramCacheKey = () => (decay ? 'clothed-skin-decay' : 'clothed-skin');
+  if (decay?.skeletal) mat.side = THREE.DoubleSide;
+  mat.customProgramCacheKey = () => (decay?.skeletal ? 'clothed-skeleton' : decay ? 'clothed-skin-decay' : 'clothed-skin');
   return mat;
 }
 
@@ -978,8 +1002,9 @@ function torsoSexScale(y, m) {
   return sexMix(m, 'neck');
 }
 
-function torso(w, m) {
-  return { shape: torsoShape(w, m), bumps: torsoMuscles(m), range: [0.86, 1.7] };
+// flatChest: leave out the breasts (e.g. for a skeleton's shirt).
+function torso(w, m, flatChest = false) {
+  return { shape: torsoShape(w, m), bumps: torsoMuscles(m, flatChest), range: [0.86, 1.7] };
 }
 
 function torsoShape(w, m) {
@@ -1013,7 +1038,7 @@ function torsoShape(w, m) {
   }));
 }
 
-function torsoMuscles(sex) {
+function torsoMuscles(sex, flatChest = false) {
   const m = [
     // Neck and collarbones.
     blob({ angle: 0, y: 1.48, amp: -0.008, width: 0.014, height: 0.014 }),         // notch between the collarbones
@@ -1028,7 +1053,7 @@ function torsoMuscles(sex) {
   ];
   // Breasts (female): two rounded forms on the chest, joined by a fill
   // between them -- a single smooth shape, as they are when clothed.
-  if (sex < 1) {
+  if (sex < 1 && !flatChest) {
     const f = 1 - sex;
     m.push(
       // (Broad, overlapping shapes, so they're rounded rather than pointed.)
@@ -1564,6 +1589,22 @@ outlineMaterial.onBeforeCompile = (shader) => {
   transformed += normalize(normal) * ${OUTLINE_THICKNESS.toFixed(4)};`);
 };
 
+// A skeleton's shirt's outline: the same, but only round the shirt.
+const shirtOutlineMaterial = new THREE.MeshBasicMaterial({
+  color: LINE_COLOR, side: THREE.BackSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2,
+});
+shirtOutlineMaterial.onBeforeCompile = (shader) => {
+  shader.vertexShader = `attribute float shirtField;
+varying float vShirtOutline;
+${shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+  vShirtOutline = shirtField;
+  transformed += normalize(normal) * ${OUTLINE_THICKNESS.toFixed(4)};`)}`;
+  shader.fragmentShader = `varying float vShirtOutline;
+${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+  if (vShirtOutline < 0.0) discard;`)}`;
+};
+shirtOutlineMaterial.customProgramCacheKey = () => 'shirt-outline';
+
 // A visible body part: a toon-shaded mesh with an outline.
 function part(geometry, mat) {
   const mesh = new THREE.Mesh(geometry, mat);
@@ -1576,7 +1617,7 @@ function part(geometry, mat) {
 function disposeTree(object) {
   object.traverse((child) => {
     if (child.isSkinnedMesh) child.skeleton.dispose();
-    if (!child.isMesh || child.material === outlineMaterial || child.userData.sharedMaterial) return;
+    if (!child.isMesh || child.material === outlineMaterial || child.material === shirtOutlineMaterial || child.userData.sharedMaterial) return;
     if (!child.geometry.userData.cached) child.geometry.dispose();
     child.material.map?.dispose();
     child.material.dispose();

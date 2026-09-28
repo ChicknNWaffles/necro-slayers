@@ -52,6 +52,20 @@ export function createZombie(random = Math.random) {
   return { appearance, decay: { seed: Math.floor(random() * 1000) / 10, wounds } };
 }
 
+// A random skeleton: { appearance, decay: { seed, wounds: [], skeletal: true },
+// weapon }. Built like a zombie's (for their size and a shirt's colour), but
+// nothing's left of them but bones in a torn shirt -- armed with either a
+// sword or a short bow, equally likely.
+export function createSkeleton(random = Math.random) {
+  const { appearance } = createZombie(random);
+  appearance.outfit = 'casual';
+  return {
+    appearance,
+    decay: { seed: Math.floor(random() * 1000) / 10, wounds: [], skeletal: true },
+    weapon: random() < 0.5 ? 'sword' : 'shortbow',
+  };
+}
+
 // --- Colours ---------------------------------------------------------------
 
 function toRgb(hex) {
