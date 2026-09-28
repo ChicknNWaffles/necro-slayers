@@ -505,3 +505,100 @@ export function playShield({ volume = 0.12 } = {}) {
   air.start(t, Math.random());
   air.stop(t + 1.9);
 }
+
+// --- Sovereign Aid ----------------------------------------------------------
+
+// Empowering someone: a bold, rising swell -- a warm, brassy chord climbing
+// up a little and swelling bright, like a fanfare's opening -- then fading.
+export function playEmpower({ volume = 0.1 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.setValueAtTime(0.001, t);
+  out.gain.exponentialRampToValueAtTime(volume, t + 0.35);
+  out.gain.setValueAtTime(volume, t + 0.7);
+  out.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+  // (Brightening as it swells, like brass played louder.)
+  const brass = ac.createBiquadFilter();
+  brass.type = 'lowpass';
+  brass.frequency.setValueAtTime(500, t);
+  brass.frequency.exponentialRampToValueAtTime(3000, t + 0.5);
+  brass.connect(out).connect(ac.destination);
+  for (const note of [196, 246.9, 293.7, 392]) {
+    const tone = ac.createOscillator();
+    tone.type = 'sawtooth';
+    tone.frequency.setValueAtTime(note * 0.94, t);
+    tone.frequency.exponentialRampToValueAtTime(note, t + 0.3);
+    tone.connect(brass);
+    tone.start(t);
+    tone.stop(t + 1.6);
+  }
+}
+
+// --- Cleansing Light --------------------------------------------------------
+
+// Casting a beam: a quick rising charge as the hand draws back, then (at
+// BEAM_IMPACT) a bright, radiant, humming blaze of light that holds for a
+// moment and fades.
+export function playBeam({ volume = 0.13 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const fire = t + 0.45; // (when the beam shoots out -- see BEAM_IMPACT)
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+
+  // The charge: a tone sweeping up, swelling.
+  const charge = ac.createOscillator();
+  charge.type = 'triangle';
+  charge.frequency.setValueAtTime(220, t);
+  charge.frequency.exponentialRampToValueAtTime(880, fire);
+  const chargeGain = ac.createGain();
+  chargeGain.gain.setValueAtTime(0.001, t);
+  chargeGain.gain.exponentialRampToValueAtTime(0.6, fire - 0.03);
+  chargeGain.gain.exponentialRampToValueAtTime(0.001, fire + 0.08);
+  charge.connect(chargeGain).connect(out);
+  charge.start(t);
+  charge.stop(fire + 0.1);
+
+  // The blaze: a bright chord humming with a fast shimmer, over rushing air.
+  const blaze = ac.createGain();
+  blaze.gain.setValueAtTime(0.001, fire);
+  blaze.gain.exponentialRampToValueAtTime(1, fire + 0.04);
+  blaze.gain.setValueAtTime(1, fire + 0.6);
+  blaze.gain.exponentialRampToValueAtTime(0.001, fire + 1.0);
+  blaze.connect(out);
+  const shimmer = ac.createOscillator();
+  shimmer.frequency.value = 18;
+  const shimmerDepth = ac.createGain();
+  shimmerDepth.gain.value = 0.25;
+  const hum = ac.createGain();
+  hum.gain.value = 0.7;
+  shimmer.connect(shimmerDepth).connect(hum.gain);
+  hum.connect(blaze);
+  for (const note of [440, 554.4, 659.3, 880]) {
+    const tone = ac.createOscillator();
+    tone.type = 'sawtooth';
+    tone.frequency.value = note;
+    const soften = ac.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 2400;
+    const level = ac.createGain();
+    level.gain.value = 0.25;
+    tone.connect(soften).connect(level).connect(hum);
+    tone.start(fire);
+    tone.stop(fire + 1.05);
+  }
+  shimmer.start(fire);
+  shimmer.stop(fire + 1.05);
+  const air = ac.createBufferSource();
+  air.buffer = noiseBuffer(ac);
+  const airTone = ac.createBiquadFilter();
+  airTone.type = 'highpass';
+  airTone.frequency.value = 2500;
+  const airLevel = ac.createGain();
+  airLevel.gain.value = 0.5;
+  air.connect(airTone).connect(airLevel).connect(blaze);
+  air.start(fire, Math.random());
+  air.stop(fire + 1.05);
+}

@@ -295,3 +295,13 @@ her hand is now hovering in front of her chest instead of resting on it, and her
 now for Evalyn's last spell, "Shield of Faith". It covers either herself or a target in a magical armor that appears as a pearlescent shimmery transparent membrane over their whole model. This reduces damage dealt to target. The spell only lasts for a period of time before wearing off. While the shield is in effect, an icon for it (a pastel pale purple shield with a glowey yellow diagonal stripe through it in a white circle with a yellow background) will appear in under the corresponding character's health bar
 
 please increase the damage of the zombie's attacks slightly to make it more ballanced. Then push the changes
+
+Next I want to make 2 Cleric spells that Evalyn doesn't but the user might have if they pick cleric at character creation. The first of those two is called "Sovereign Aid". It makes attacks from self or a target do more damage for a limited time. Like Shield of Faith, this should also have an icon that goes under the health bar. The icon has the same circle and outline as the Shield of Faith icon, but instead of a shield it has two hands with the tips of their fingers touching like in Michelangelo's painting "The Creation of Adam"
+
+is there a casting animation and sound for Sovereign Aid? If not, please create one
+
+Last cleric spell, it's called "Cleansing Light". It causes a beam of light to go from the caster in a straight light for a moment. Undead creatures caught in this light are dealt damage, all other creatures caught in it are stunned. If the player chooses cleric, they can choose 4 of the 6 cleric spells, that being the 4 Evalyn has and the 2 she doesn't. Selecting a spell can be done with number buttons 1 through 4, and casting them is done with left click
+
+please run the game so I can test it. If you can make Evalyn stand down for this time only so that I can test the player's spells without the zombie dying too fast
+
+please commit the changes

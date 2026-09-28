@@ -97,6 +97,13 @@ export class CharacterModel {
     this.shield?.set(amount, time);
   }
 
+  // Where the middle of the right palm is, in the world (e.g. for a beam
+  // shining from it).
+  palmPosition(target = new THREE.Vector3()) {
+    this.root.updateMatrixWorld(true);
+    return this.joints.rightElbow.localToWorld(target.set(0, -BODY.forearmLength - 0.09, 0));
+  }
+
   // React to being hit.
   flinch() {
     this.animator.flinch();

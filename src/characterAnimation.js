@@ -77,6 +77,8 @@ const GESTURES = {
 export const SMITE_IMPACT = 0.42;
 // The moment an invocation calls down its spell (seconds into the gesture).
 export const INVOKE_IMPACT = 0.6;
+// The moment the beam of Cleansing Light shoots out.
+export const BEAM_IMPACT = 0.45;
 // The moment a healing touch (on someone else, or on one's own chest) takes effect.
 export const HEAL_IMPACT = 0.75;
 // The moments a zombie's scratch and bite connect (seconds into the gesture).
@@ -155,6 +157,22 @@ Object.assign(GESTURES, {
     glow: [[0, 0], [0.3, 0.4], [0.7, 0.7], [1.15, 0.6], [1.45, 0]], // (softer, so close to the body)
     wrist: [[0, [0, 0, 0]], [0.45, [0, 0, -0.7]], [1.15, [0, 0, -0.7]], [1.5, [0, 0, 0]]],
   },
+  // Casting a beam (Cleansing Light): the hand draws back to the shoulder,
+  // lighting up, then thrusts straight out, palm forwards and fingers up, and
+  // holds there while the beam shines from it (from BEAM_IMPACT).
+  beam: {
+    duration: 1.5,
+    keys: [
+      [0.0, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+      [0.33, [1.1, 0, 0.3], [1.5, 0, 0], [0.05, 0]],
+      [0.45, [1.5, 0, 0.1], [0.1, 0, 0], [0, 0]],
+      [1.2, [1.5, 0, 0.1], [0.1, 0, 0], [0, 0]],
+      [1.5, [0.3, 0, 0.2], [0.3, 0, 0], [0, 0]],
+    ],
+    wrist: [[0, [0, 0, 0]], [0.33, [0.5, 0, 0]], [0.45, [1.1, 0, 0]], [1.2, [1.1, 0, 0]], [1.5, [0, 0, 0]]],
+    glow: [[0, 0], [0.3, 0.8], [0.45, 1], [1.2, 1], [1.45, 0]],
+    lean: [[0, 0], [0.33, -0.06], [0.45, 0.08], [1.2, 0.06], [1.5, 0]],
+  },
   // Shielding someone (Shield of Faith) is cast the same way as healing: a
   // touch, or a hand on one's own chest (set below).
   // A zombie's scratch: the arm rears up and out, then rakes down and across
@@ -187,8 +205,8 @@ Object.assign(GESTURES, {
     mouth: [[0, 0], [0.25, 0.6], [0.45, 1], [0.52, 0.1], [0.7, 0.15], [0.9, 0]],
   },
 });
-GESTURES.shieldTouch = GESTURES.healTouch;
-GESTURES.shieldSelf = GESTURES.healSelf;
+GESTURES.shieldTouch = GESTURES.aidTouch = GESTURES.healTouch;
+GESTURES.shieldSelf = GESTURES.aidSelf = GESTURES.healSelf;
 const GESTURE_EASE = { in: 0.25, out: 0.3 }; // seconds to blend into and out of a gesture
 const FLINCH_TIME = 0.35;  // how long a flinch from being hit lasts
 const FALL_TIME = 0.8;     // how long it takes to fall down dead

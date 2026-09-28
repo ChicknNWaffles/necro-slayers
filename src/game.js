@@ -3,9 +3,9 @@
 import { GameRenderer } from './renderer.js';
 import { createAppearance } from './characterAppearance.js';
 import {
-  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield,
+  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam,
 } from './sound.js';
-import { SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT } from './characterAnimation.js';
+import { SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT, BEAM_IMPACT } from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
 import { Hud } from './hud.js';
@@ -46,8 +46,38 @@ const player = {
   name: 'You',
   maxHealth: 100,
   health: 100,
-  shieldTime: 0, // seconds of Shield of Faith left
+  shieldTime: 0,  // seconds of Shield of Faith left
+  empowerTime: 0, // seconds of Sovereign Aid left
+  stunTime: 0,    // seconds of being stunned left (see Cleansing Light)
+  // The player's class decides which spells they can learn (see CLASSES),
+  // and they pick some of them (see chooseSpells). There's no character
+  // creator to choose these yet, so for now the player is a cleric with a
+  // starting set of spells.
+  characterClass: 'cleric',
+  spells: [],
+  selectedSpell: 0, // which of their spells left click casts (chosen with the number keys)
+  cooldowns: {},
+  casting: null,
 };
+
+// Character classes: what the player can do if they choose one.
+//   spells: the spells the class can learn; slots: how many of them the player picks
+const CLASSES = {
+  // All four of Evalyn's spells, and two she doesn't know.
+  cleric: {
+    spells: ['smite', 'divineBlade', 'divineRestoration', 'shieldOfFaith', 'sovereignAid', 'cleansingLight'],
+    slots: 4,
+  },
+};
+const PLAYER_SPELL_KEYS = ['1', '2', '3', '4']; // select the first spell with 1, the next with 2...
+
+// The player's spells: the ones they picked, if they're all ones their class
+// can learn (and there are no more than it has room for).
+function chooseSpells(characterClass, picks) {
+  const { spells, slots } = CLASSES[characterClass];
+  return [...new Set(picks)].filter((s) => spells.includes(s)).slice(0, slots);
+}
+player.spells = chooseSpells(player.characterClass, ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight']);
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
 // or partial appearance; anything missing or invalid keeps its current value.
@@ -106,6 +136,7 @@ const NPCS = [
     role: 'enemy',
     ...createZombie(),
     pose: 'zombie',
+    undead: true,
     position: { x: 7, y: FLOOR.y, z: -9 },
     yaw: Math.atan2(7, -9),
     radius: 0.45,
@@ -121,6 +152,8 @@ const NPCS = [
   health: npc.maxHealth,
   dead: false,
   shieldTime: 0,    // seconds of Shield of Faith left
+  empowerTime: 0,   // seconds of Sovereign Aid left
+  stunTime: 0,      // seconds of being stunned left (see Cleansing Light)
   casting: null,    // the spell they're in the middle of casting: { spell, target, time, landed }
   cooldowns: {},    // spell -> seconds until it can be cast again
   position: { ...npc.position },
@@ -162,6 +195,75 @@ function toggleFollowing() {
   } else {
     renderer.playerGesture('dismiss');
   }
+}
+
+// --- The player's spells ---------------------------------------------------
+
+// The number keys choose one of the player's spells, and left click casts it
+// at whatever the player is facing:
+//   healing, shields and Sovereign Aid: the party member in front, within
+//     touch -- or, with no one there, the player themselves
+//   Smite: the enemy in front, within reach (a swing at the air, otherwise)
+//   Divine Blade: the enemy in front, within range -- or the ground ahead
+//   Cleansing Light: straight ahead
+function selectSpell(slot) {
+  if (slot < player.spells.length) player.selectedSpell = slot;
+}
+
+function castPlayerSpell(name) {
+  const spell = SPELLS[name];
+  if (!spell || player.casting || player.stunTime > 0 || (player.cooldowns[name] ?? 0) > 0) return;
+  let target;
+  if (spell.heal || spell.shield || spell.empower) target = facedCharacter(livingParty(), spell.range) ?? player;
+  else if (spell.radius) target = facedCharacter(livingEnemies(), spell.range, 0.75) ?? { position: pointAhead(player, 6) };
+  else if (spell.beam) target = null;
+  else target = facedCharacter(livingEnemies(), spell.range * 1.2);
+  player.casting = { spell, target, time: 0, landed: false };
+  player.cooldowns[name] = spell.cooldown;
+  renderer.playerGesture(target === player ? spell.selfGesture : spell.gesture);
+  playCastSound(spell);
+}
+
+// The nearest of some characters in front of the player (other than the
+// player), within reach. facing: how squarely in front (1 = dead ahead).
+function facedCharacter(characters, reach, facing = 0.3) {
+  const facingX = -Math.sin(player.yaw), facingZ = -Math.cos(player.yaw);
+  let best = null, bestDistance = reach + 0.5;
+  for (const character of characters) {
+    if (character === player) continue;
+    const dx = character.position.x - player.position.x, dz = character.position.z - player.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < bestDistance && (dx * facingX + dz * facingZ) / (d || 1) > facing) { best = character; bestDistance = d; }
+  }
+  return best;
+}
+
+// A point on the floor some way in front of a character.
+function pointAhead(character, distance) {
+  return { x: character.position.x - Math.sin(character.yaw) * distance, y: FLOOR.y, z: character.position.z - Math.cos(character.yaw) * distance };
+}
+
+// A spell the player is casting takes effect partway through (as NPCs' do).
+function updatePlayerCasting(dt) {
+  for (const name of Object.keys(player.cooldowns)) player.cooldowns[name] = Math.max(player.cooldowns[name] - dt, 0);
+  const cast = player.casting;
+  if (!cast) return;
+  cast.time += dt;
+  if (!cast.landed && cast.time >= cast.spell.impact) {
+    cast.landed = true;
+    landSpell(player, cast);
+  }
+  if (cast.time >= cast.spell.duration) player.casting = null;
+}
+
+// The sound of starting to cast a spell.
+function playCastSound(spell) {
+  if (spell.heal) playHealing();
+  else if (spell.shield) playShield();
+  else if (spell.empower) playEmpower();
+  else if (spell.beam) playBeam();
+  else if (spell.radius) playSummon();
+  else playSwing();
 }
 
 // The player's speaking pitch (Hz), by body type: low and firm, for giving orders.
@@ -341,7 +443,7 @@ function nearest(npc, others) {
 function updateNpc(npc, dt) {
   const pos = npc.position;
   const start = { x: pos.x, z: pos.z };
-  const { goal = null, speed = 0, running = false, face = null } = npc.dead ? {} : chooseMove(npc, dt);
+  const { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 ? {} : chooseMove(npc, dt);
 
   let faceX = 0, faceZ = 0;
   if (goal) {
@@ -409,7 +511,8 @@ function separateNpcs() {
 
 // --- Spells ----------------------------------------------------------------
 
-// Spells party members cast in combat.
+// Spells cast in combat (by the party -- Evalyn, or the player).
+//   label: its name, as shown on screen
 //   range: how close the target must be; cooldown: seconds before it can be cast again
 //   duration: how long casting takes (they stand still, facing the target)
 //   impact: when (seconds in) it takes effect -- matched to its gesture
@@ -425,7 +528,7 @@ const SPELLS = {
   // party is hurt worst and lays a glowing hand on them -- or, to heal
   // themselves, on their own chest (see the 'healTouch' and 'healSelf' gestures).
   divineRestoration: {
-    gesture: 'healTouch', selfGesture: 'healSelf', range: 1.05, cooldown: 7, duration: 1.5, impact: HEAL_IMPACT,
+    label: 'Divine Restoration', gesture: 'healTouch', selfGesture: 'healSelf', range: 1.05, cooldown: 7, duration: 1.5, impact: HEAL_IMPACT,
     heal: 0.35,
     below: 0.6, // (only cast on someone below this share of their health)
   },
@@ -433,17 +536,34 @@ const SPELLS = {
   // healer shields whoever in the party is closest to an enemy (and not
   // already shielded) -- or themselves. It lasts a while, then wears off.
   shieldOfFaith: {
-    gesture: 'shieldTouch', selfGesture: 'shieldSelf', range: 1.05, cooldown: 14, duration: 1.5, impact: HEAL_IMPACT,
+    label: 'Shield of Faith', gesture: 'shieldTouch', selfGesture: 'shieldSelf', range: 1.05, cooldown: 14, duration: 1.5, impact: HEAL_IMPACT,
     shield: 12,        // how long it lasts (seconds)
     threatRange: 6,    // (only cast on someone this close to an enemy)
   },
+  // Sovereign Aid (a cleric's spell -- the player's, not Evalyn's): laid on by
+  // touch, or a hand on one's own chest, it makes the target's attacks and
+  // spells do more damage for a while.
+  sovereignAid: {
+    label: 'Sovereign Aid', gesture: 'aidTouch', selfGesture: 'aidSelf', range: 1.6, cooldown: 18, duration: 1.5, impact: HEAL_IMPACT,
+    empower: 14,       // how long it lasts (seconds)
+  },
+  // Cleansing Light (a cleric's spell -- the player's, not Evalyn's): a beam
+  // of holy light straight out from the caster's hand for a moment. It burns
+  // the undead caught in it, and stuns everyone else (friend or foe).
+  cleansingLight: {
+    label: 'Cleansing Light', gesture: 'beam', range: 12, cooldown: 10, duration: 1.5, impact: BEAM_IMPACT,
+    beam: 0.75,        // how long the beam shines (seconds)
+    width: 0.45,       // how far either side of its centre line it catches people
+    damage: 22,        // to the undead
+    stun: 3,           // seconds everyone else is stunned for
+  },
   // Smite: whacking an enemy with a glowing hand (see the 'smite' gesture).
-  smite: { gesture: 'smite', melee: true, range: 1.8, cooldown: 2.2, duration: 0.95, impact: SMITE_IMPACT, damage: 18 },
+  smite: { label: 'Smite', gesture: 'smite', melee: true, range: 1.8, cooldown: 2.2, duration: 0.95, impact: SMITE_IMPACT, damage: 18 },
   // Divine Blade: a hailstorm of glowing swords falling on an area round the
   // target (see the 'invoke' gesture, and storms below). Each sword hurts
   // anyone -- friend or foe -- where it lands.
   divineBlade: {
-    gesture: 'invoke', minRange: 3, range: 9, radius: 2.2, cooldown: 9, duration: 1.2, impact: INVOKE_IMPACT,
+    label: 'Divine Blade', gesture: 'invoke', minRange: 3, range: 9, radius: 2.2, cooldown: 9, duration: 1.2, impact: INVOKE_IMPACT,
     swords: 26,       // how many fall
     stormTime: 1.6,   // over how long (seconds)
     swordDamage: 3,   // damage to anyone within...
@@ -470,7 +590,7 @@ function castSpells(npc, dt) {
       npc.casting = { spell, target, time: 0, landed: false };
       npc.cooldowns[name] = spell.cooldown;
       renderer.npcGesture(npc.view, target === npc ? spell.selfGesture : spell.gesture);
-      if (spell.heal) playHealing(); else if (spell.shield) playShield(); else if (spell.radius) playSummon(); else playSwing();
+      playCastSound(spell);
     }
   }
   if (!npc.casting) return null;
@@ -479,38 +599,46 @@ function castSpells(npc, dt) {
   cast.time += dt;
   if (!cast.landed && cast.time >= cast.spell.impact) {
     cast.landed = true;
-    if (cast.spell.heal || cast.spell.shield) {
-      // A touch spell lands if they're still within touch (or it's the caster).
-      const { target } = cast;
-      if (!target.dead && (target === npc || distanceBetween(npc.position, target.position) <= cast.spell.range * 1.5)) {
-        if (cast.spell.heal) {
-          target.health = Math.min(target.health + target.maxHealth * cast.spell.heal, target.maxHealth);
-          renderer.healingLight(target.position);
-        } else {
-          target.shieldTime = cast.spell.shield;
-        }
-      }
-    } else if (cast.spell.bite !== undefined) {
-      // An enemy's attack: it only lands if the victim is still within reach.
-      if (!cast.target.dead && distanceBetween(npc.position, cast.target.position) <= cast.spell.range * 1.3) {
-        hurt(cast.target, cast.spell.damage);
-        const at = cast.target.position;
-        renderer.bloodSpatter({ x: (at.x * 2 + npc.position.x) / 3, y: at.y + (cast.spell.bite ? 1.45 : 1.2), z: (at.z * 2 + npc.position.z) / 3 });
-        playWound(cast.spell.bite ? 'bite' : 'scratch');
-      }
-    } else if (cast.spell.radius) {
-      // An area spell falls where the target is now.
-      startStorm(cast.spell, cast.target.position);
-    } else if (!cast.target.dead && distanceBetween(npc.position, cast.target.position) <= cast.spell.range * 1.3) {
-      // (A close-range spell only lands if the target is still there and within reach.)
-      hurt(cast.target, cast.spell.damage);
-      const at = cast.target.position;
-      renderer.smiteBurst({ x: (at.x + npc.position.x) / 2, y: at.y + 1.3, z: (at.z + npc.position.z) / 2 });
-      playSmite();
-    }
+    landSpell(npc, cast);
   }
   if (cast.time >= cast.spell.duration) npc.casting = null;
-  return cast.target === npc ? {} : { face: cast.target.position };
+  return !cast.target || cast.target === npc ? {} : { face: cast.target.position };
+}
+
+// A spell (or attack) taking effect, partway through being cast.
+function landSpell(caster, { spell, target }) {
+  const within = (reach) => target && !target.dead && (target === caster || distanceBetween(caster.position, target.position) <= reach);
+  if (spell.heal || spell.shield || spell.empower) {
+    // A touch spell lands if they're still within touch (or it's the caster).
+    if (!within(spell.range * 1.5)) return;
+    if (spell.heal) {
+      target.health = Math.min(target.health + target.maxHealth * spell.heal, target.maxHealth);
+      renderer.healingLight(target.position);
+    } else if (spell.shield) {
+      target.shieldTime = spell.shield;
+    } else {
+      target.empowerTime = spell.empower;
+      renderer.empowerBurst(target.position);
+    }
+  } else if (spell.bite !== undefined) {
+    // An enemy's attack: it only lands if the victim is still within reach.
+    if (!within(spell.range * 1.3)) return;
+    hurt(target, spell.damage, caster);
+    const at = target.position;
+    renderer.bloodSpatter({ x: (at.x * 2 + caster.position.x) / 3, y: at.y + (spell.bite ? 1.45 : 1.2), z: (at.z * 2 + caster.position.z) / 3 });
+    playWound(spell.bite ? 'bite' : 'scratch');
+  } else if (spell.radius) {
+    // An area spell falls where the target is now.
+    startStorm(spell, target.position, caster);
+  } else if (spell.beam) {
+    startBeam(spell, caster);
+  } else if (within(spell.range * 1.3)) {
+    // (A close-range spell only lands if the target is still there and within reach.)
+    hurt(target, spell.damage, caster);
+    const at = target.position;
+    renderer.smiteBurst({ x: (at.x + caster.position.x) / 2, y: at.y + 1.3, z: (at.z + caster.position.z) / 2 });
+    playSmite();
+  }
 }
 
 // Enemies' attacks, used like spells (see castSpells):
@@ -594,6 +722,54 @@ function canCast(npc, spell, target) {
   return partyMembers().every((m) => m.dead || distanceBetween(m.position, target.position) > spell.radius + STORM_MARGIN);
 }
 
+// --- Cleansing Light beams -------------------------------------------------
+
+// Beams shining: { spell, caster, from: { x, z }, dir: { x, z }, time, caught: Set }.
+const beams = [];
+
+function startBeam(spell, caster) {
+  const dir = { x: -Math.sin(caster.yaw), z: -Math.cos(caster.yaw) };
+  const from = { x: caster.position.x, z: caster.position.z };
+  beams.push({ spell, caster, from, dir, time: 0, caught: new Set() });
+  renderer.lightBeam(caster.view, spell.range, spell.beam);
+}
+
+function updateBeams(dt) {
+  for (const beam of beams) {
+    beam.time += dt;
+    // Anyone in its path is caught (once): the undead are burned, anyone
+    // else stunned.
+    for (const character of [player, ...NPCS]) {
+      if (character === beam.caster || character.dead || beam.caught.has(character)) continue;
+      const dx = character.position.x - beam.from.x, dz = character.position.z - beam.from.z;
+      const along = dx * beam.dir.x + dz * beam.dir.z;
+      const across = Math.abs(dx * beam.dir.z - dz * beam.dir.x);
+      if (along < 0 || along > beam.spell.range || across > beam.spell.width + (character.radius ?? PLAYER_RADIUS)) continue;
+      beam.caught.add(character);
+      if (character.undead) {
+        hurt(character, beam.spell.damage, beam.caster);
+        renderer.smiteBurst({ x: character.position.x, y: character.position.y + 1.3, z: character.position.z });
+      } else {
+        stun(character, beam.spell.stun);
+      }
+    }
+  }
+  for (let i = beams.length - 1; i >= 0; i--) if (beams[i].time >= beams[i].spell.beam) beams.splice(i, 1);
+}
+
+// Stunned: dazed, unable to move, attack or cast for a while.
+function stun(character, seconds) {
+  character.stunTime = Math.max(character.stunTime ?? 0, seconds);
+  character.casting = null;
+}
+
+function updateStuns(dt) {
+  for (const character of [player, ...NPCS]) {
+    character.stunTime = character.dead ? 0 : Math.max((character.stunTime ?? 0) - dt, 0);
+    renderer.setDazed(character.view, character.stunTime > 0);
+  }
+}
+
 // --- Divine Blade storms --------------------------------------------------
 
 // Swords falling on an area: { spell, centre, time, dropped, swords: [{ x, z, landsAt, landed }] }.
@@ -601,7 +777,7 @@ const storms = [];
 const SWORD_FALL_TIME = 0.35; // how long a sword takes to fall
 const STORM_MARGIN = 0.9;     // how far outside a storm party members keep
 
-function startStorm(spell, at) {
+function startStorm(spell, at, caster) {
   // (If anyone in the party has come too close to the target since the spell
   // was begun, the storm falls a little further off, so it misses them.)
   const centre = { x: at.x, z: at.z };
@@ -614,7 +790,7 @@ function startStorm(spell, at) {
       centre.z = member.position.z + az * safe;
     }
   }
-  const storm = { spell, centre, time: 0, dropped: 0, swords: [] };
+  const storm = { spell, caster, centre, time: 0, dropped: 0, swords: [] };
   storms.push(storm);
   renderer.bladeArea(storm.centre, spell.radius, spell.stormTime + SWORD_FALL_TIME + 0.4);
 }
@@ -636,7 +812,7 @@ function updateStorms(dt) {
       sword.landed = true;
       playSwordImpact();
       for (const character of [player, ...NPCS]) {
-        if (!character.dead && distanceBetween(character.position, sword) <= spell.swordReach) hurt(character, spell.swordDamage);
+        if (!character.dead && distanceBetween(character.position, sword) <= spell.swordReach) hurt(character, spell.swordDamage, storm.caster);
       }
     }
   }
@@ -683,13 +859,16 @@ function outsideStorms(point) {
   return moved;
 }
 
-// Taking damage: a flinch, or falling down dead when their health runs out.
-// (The player doesn't die yet: their health just stops at zero.) A Shield of
-// Faith takes the edge off it.
+// Taking damage (from `attacker`, if anyone): a flinch, or falling down dead
+// when their health runs out. (The player doesn't die yet: their health just
+// stops at zero.) A Shield of Faith takes the edge off it; Sovereign Aid on
+// the attacker adds to it.
 const SHIELD_PROTECTION = 0.5; // the share of damage a shield stops
+const EMPOWER_BONUS = 0.5;     // the extra share of damage an empowered attacker does
 
-function hurt(target, damage) {
+function hurt(target, damage, attacker = null) {
   if (target.dead) return;
+  if (attacker?.empowerTime > 0) damage *= 1 + EMPOWER_BONUS;
   if (target.shieldTime > 0) damage *= 1 - SHIELD_PROTECTION;
   target.health = Math.max(target.health - damage, 0);
   if (target.health > 0 || target === player) {
@@ -847,6 +1026,8 @@ const heldKeys = new Set();
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') startOrbit();
   if (e.key.toLowerCase() === 'z' && !e.repeat) toggleFollowing();
+  const spellSlot = PLAYER_SPELL_KEYS.indexOf(e.key);
+  if (spellSlot >= 0) selectSpell(spellSlot);
 
   const key = e.key.toLowerCase();
   if (key in KEY_BINDINGS) {
@@ -902,10 +1083,11 @@ function isFallingNearFloor() {
 
 function updatePlayer(dt) {
   const pos = player.position;
+  const stunned = player.stunTime > 0; // (a stunned player can't move or jump)
 
   // Horizontal movement, relative to the direction the camera faces.
-  const forward = Number(isActionHeld('forward')) - Number(isActionHeld('back'));
-  const strafe = Number(isActionHeld('right')) - Number(isActionHeld('left'));
+  const forward = stunned ? 0 : Number(isActionHeld('forward')) - Number(isActionHeld('back'));
+  const strafe = stunned ? 0 : Number(isActionHeld('right')) - Number(isActionHeld('left'));
   const length = Math.hypot(forward, strafe);
   let sideways = 0; // +1 moving to the character's right, -1 to their left
   if (length > 0) {
@@ -952,6 +1134,7 @@ function updatePlayer(dt) {
   if (jumpRequested && !player.onGround && isFallingNearFloor()) {
     player.jumpBuffered = true;
   }
+  if (stunned) jumpRequested = player.jumpBuffered = false;
   if ((jumpRequested || player.jumpBuffered) && player.onGround) {
     player.velocityY = PLAYER.jumpSpeed;
     player.jumpBuffered = false;
@@ -984,7 +1167,7 @@ function updatePlayer(dt) {
 
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
-renderer.addPlayer(player.appearance);
+renderer.addPlayer(player.appearance, { caster: player.spells.length > 0 });
 player.view = renderer.playerModel;
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
 
@@ -995,11 +1178,13 @@ hud.setParty(partyMembers().map((member) => ({
   id: member, name: member.name, portrait: renderer.portrait(member.view),
 })));
 hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
+hud.setSpells(player.spells.map((name, i) => ({ label: SPELLS[name].label, key: PLAYER_SPELL_KEYS[i] })));
 
 // Shields wear off over time; the membrane fades in when one is cast, and
 // flickers as it's about to wear off.
 function updateShields(dt) {
   for (const character of [player, ...NPCS]) {
+    character.empowerTime = character.dead ? 0 : Math.max((character.empowerTime ?? 0) - dt, 0);
     const before = character.shieldTime;
     character.shieldTime = character.dead ? 0 : Math.max(character.shieldTime - dt, 0);
     character.shieldShown ??= 0;
@@ -1014,8 +1199,13 @@ function updateShields(dt) {
 function updateHud() {
   hud.update({
     combat: combat.active,
+    spells: {
+      selected: player.selectedSpell,
+      recharging: player.spells.map((name) => (player.cooldowns[name] ?? 0) / SPELLS[name].cooldown),
+    },
     party: partyMembers().map((member) => ({
-      id: member, health: member.health, maxHealth: member.maxHealth, effects: { shield: member.shieldTime },
+      id: member, health: member.health, maxHealth: member.maxHealth,
+      effects: { shield: member.shieldTime, aid: member.empowerTime },
     })),
     enemies: NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({
       id: npc, health: npc.health, maxHealth: npc.maxHealth, screen: renderer.overHead(npc.view),
@@ -1055,9 +1245,16 @@ document.addEventListener('mousemove', (e) => {
 // Right click jumps (only while the game has the mouse).
 const RIGHT_MOUSE_BUTTON = 2;
 
+// Left click casts the selected spell (only while the game has the mouse --
+// otherwise a click is what captures it).
+const LEFT_MOUSE_BUTTON = 0;
+
 document.addEventListener('mousedown', (e) => {
   if (e.button === RIGHT_MOUSE_BUTTON && document.pointerLockElement === renderer.canvas) {
     jumpRequested = true;
+  }
+  if (e.button === LEFT_MOUSE_BUTTON && document.pointerLockElement === renderer.canvas) {
+    castPlayerSpell(player.spells[player.selectedSpell]);
   }
 });
 
@@ -1086,6 +1283,9 @@ function frame(now) {
   updateCombat();
   updateStorms(dt);
   updateShields(dt);
+  updatePlayerCasting(dt);
+  updateBeams(dt);
+  updateStuns(dt);
   for (const npc of NPCS) {
     updateNpc(npc, dt);
     renderer.updateNpc(npc.view, npc.position, npc.yaw);

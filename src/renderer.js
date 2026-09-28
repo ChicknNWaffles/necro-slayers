@@ -66,9 +66,10 @@ export class GameRenderer {
   }
 
   // The player's character model, built from their appearance (see characterModel.js).
-  addPlayer(appearance) {
+  // caster: whether they cast spells (their hand can glow).
+  addPlayer(appearance, { caster = false } = {}) {
     this.player = new THREE.Group(); // origin is at the player's feet
-    this.playerModel = new CharacterModel(appearance);
+    this.playerModel = new CharacterModel(appearance, { caster });
     this.player.add(this.playerModel.root);
     this.scene.add(this.player);
   }
@@ -88,6 +89,13 @@ export class GameRenderer {
   updateNpc(model, position, yaw) {
     model.root.position.set(position.x, position.y, position.z);
     model.root.rotation.y = yaw;
+  }
+
+  // A burst of golden motes swirling up round someone as they're empowered
+  // (Sovereign Aid). position: { x, y, z } -- their feet.
+  empowerBurst(position) {
+    this.sparks({ x: position.x, y: position.y + 1.2, z: position.z }, 18, 0.7, { color: '#ffcf4a', size: 0.12 });
+    this.sparks({ x: position.x, y: position.y + 0.6, z: position.z }, 10, 0.6, { color: '#fff1b0', size: 0.08 });
   }
 
   // Play a gesture on the player's model (see characterAnimation.js).
@@ -214,6 +222,84 @@ export class GameRenderer {
   // amount 0 (none) to 1 (fully shielded).
   setShield(model = this.playerModel, amount) {
     model.setShield(amount, performance.now() / 1000);
+  }
+
+  // Cleansing Light: a beam of holy light shining straight out from a
+  // character's palm, level with the ground, `length` long, for `duration`
+  // seconds -- a white-hot core in a soft golden glow, with a flare at the hand.
+  lightBeam(model = this.playerModel, length, duration) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    model.palmPosition(group.position);
+    const facing = new THREE.Vector3(0, 0, -1).applyQuaternion(model.root.getWorldQuaternion(new THREE.Quaternion()));
+    facing.y = 0;
+    group.lookAt(group.position.clone().sub(facing.normalize())); // (so the group's -z points along the beam)
+    const beamPart = (radius, color) => {
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius * 1.3, length, 24, 1, true).rotateX(Math.PI / 2).translate(0, 0, -length / 2),
+        new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, ...additive }),
+      );
+      group.add(mesh);
+      return mesh;
+    };
+    const core = beamPart(0.07, '#ffffff');
+    const inner = beamPart(0.18, '#fff2b8');
+    const outer = beamPart(0.38, '#ffd45c');
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#fff6d0', ...additive }));
+    group.add(flare);
+    this.scene.add(group);
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        const t = age / duration;
+        const on = Math.min(age / 0.08, 1) * Math.min((duration - age) / 0.2, 1); // (snapping on, fading off)
+        const flicker = 0.85 + 0.15 * Math.sin(age * 60);
+        core.material.opacity = on;
+        inner.material.opacity = 0.55 * on * flicker;
+        outer.material.opacity = 0.22 * on * flicker;
+        const swell = 1 + 0.15 * Math.sin(age * 25);
+        inner.scale.set(swell, swell, 1);
+        flare.scale.setScalar(0.9 * on * flicker);
+        flare.material.opacity = on;
+        return t < 1;
+      },
+    });
+  }
+
+  // Stunned (e.g. by Cleansing Light): little stars circling over a
+  // character's head for as long as it lasts. (Called every frame.)
+  setDazed(model = this.playerModel, dazed) {
+    model.userData ??= {};
+    const state = model.userData;
+    state.dazed = dazed;
+    if (!dazed || state.daze) return;
+    const group = new THREE.Group();
+    group.position.y = 2.15 * model.height;
+    const stars = Array.from({ length: 3 }, () => {
+      const star = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTexture(), color: '#ffe36b', transparent: true, depthWrite: false }));
+      star.scale.setScalar(0.16);
+      group.add(star);
+      return star;
+    });
+    model.root.add(group);
+    state.daze = group;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        if (!state.dazed) {
+          group.parent?.remove(group);
+          state.daze = null;
+          return false;
+        }
+        stars.forEach((star, i) => {
+          const a = age * 4 + (i * Math.PI * 2) / 3;
+          star.position.set(Math.cos(a) * 0.25, 0.04 * Math.sin(a * 2), Math.sin(a) * 0.25);
+        });
+        return true;
+      },
+    });
   }
 
   // Healing light (Divine Restoration) on someone: a soft glow rising round
@@ -460,4 +546,28 @@ const swordGeometry = (() => {
 
 function swordParts(material) {
   return swordGeometry.map((geometry) => new THREE.Mesh(geometry, material));
+}
+
+// A five-pointed star with a bright middle (for being dazed).
+let starMap = null;
+function starTexture() {
+  if (!starMap) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const context = canvas.getContext('2d');
+    context.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 12 : 28, a = (i * Math.PI) / 5 - Math.PI / 2;
+      context.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
+    }
+    context.closePath();
+    context.fillStyle = '#ffffff';
+    context.fill();
+    context.lineWidth = 3;
+    context.strokeStyle = 'rgba(120, 90, 20, 0.9)';
+    context.stroke();
+    starMap = new THREE.CanvasTexture(canvas);
+    starMap.colorSpace = THREE.SRGBColorSpace;
+  }
+  return starMap;
 }
