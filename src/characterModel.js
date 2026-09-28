@@ -118,6 +118,21 @@ export class CharacterModel {
     return this.joints.rightElbow.localToWorld(target.set(0, -BODY.forearmLength - 0.09, 0));
   }
 
+  // Show or hide a weapon (e.g. a dagger, only drawn when it's in use).
+  showWeapon(name, visible) {
+    if (this.weapons[name]) this.weapons[name].visible = visible;
+  }
+
+  // Whether the crossbow has a bolt in it.
+  setLoaded(loaded) {
+    const bolt = this.weapons.crossbow?.userData.bolt;
+    if (bolt) bolt.visible = loaded;
+  }
+
+  cancelGesture() {
+    this.animator.cancelGesture();
+  }
+
   // Raise (or lower) a shield to block.
   setBlocking(blocking) {
     this.animator.blocking = blocking;
@@ -203,10 +218,23 @@ const POSES = {
     left: { shoulder: [0.7, 0.5, -0.25], elbow: [1.2, 0, 0] },
     whileMoving: true, armSwing: 0,
   },
+  // Bow: carried in the left hand, forearm raised so it's held upright.
+  bow: {
+    left: { shoulder: [0.3, 0, 0.05], elbow: [1.1, 0, 0] },
+    whileMoving: true, armSwing: 0.5,
+  },
+  // Crossbow: held low in front in both hands.
+  crossbow: {
+    right: { shoulder: [0.3, 0, 0.05], elbow: [1.1, 0, 0] },
+    left: { shoulder: [0.45, 0.5, -0.1], elbow: [1.2, 0, 0] },
+    whileMoving: true, armSwing: 0,
+  },
 };
 
 // The stance for a set of weapons.
 export function weaponStance(weapons) {
+  if (weapons.includes('crossbow')) return 'crossbow';
+  if (weapons.includes('shortbow') || weapons.includes('longbow')) return 'bow';
   if (weapons.includes('halberd')) return 'halberd';
   if (weapons.includes('sword') || weapons.includes('shield')) return 'swordAndShield';
   return null;
@@ -564,6 +592,11 @@ const WEAPON_GRIP = {
   sword: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, -0.005], rotation: [-0.3, 0, 0] },
   halberd: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, 0], rotation: [-1.0, 0, 0.6] },
   shield: { joint: 'leftElbow', position: [-0.05, -0.14, 0], rotation: [-1.89, 0, 0] },
+  // Bows in the left hand, the grip in the palm; the crossbow and dagger in the right.
+  shortbow: { joint: 'leftElbow', position: [0, -BODY.forearmLength - 0.09 + 0.08, 0], rotation: [0, 0, 0] },
+  longbow: { joint: 'leftElbow', position: [0, -BODY.forearmLength - 0.09 + 0.09, 0], rotation: [0, 0, 0] },
+  crossbow: { joint: 'rightElbow', position: [0, -BODY.forearmLength - 0.09, 0], rotation: [-1.5708, 0, 0] },
+  dagger: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, -0.005], rotation: [-0.3, 0, 0] },
 };
 
 // A glow round the right hand, for casting spells: a bright core, a soft halo

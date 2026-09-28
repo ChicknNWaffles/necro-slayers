@@ -14,6 +14,7 @@ export class Hud {
     this.party = new Map();   // id -> { fill }
     this.enemies = new Map(); // id -> { bar, fill }
     this.spellBar = element('div', 'spell-bar', container); // (always shown, so not inside the combat HUD)
+    this.crosshair = element('div', 'crosshair', container); // (for aiming a bow)
     this.spellSlots = [];
   }
 
@@ -76,8 +77,10 @@ export class Hud {
   //   where the top of their head is on screen, in pixels
   // spells: { selected (index), recharging: [0-1 for each spell -- the share
   //   of its recharge still to go] }
-  update({ combat, party, enemies, spells }) {
+  // aiming: whether to show the crosshair.
+  update({ combat, party, enemies, spells, aiming = false }) {
     this.root.classList.toggle('combat', combat);
+    this.crosshair.classList.toggle('on', aiming);
     this.spellSlots.forEach(({ slot, recharge }, i) => {
       slot.classList.toggle('selected', i === spells?.selected);
       const left = spells?.recharging[i] ?? 0;

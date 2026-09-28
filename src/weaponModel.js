@@ -8,6 +8,8 @@
 //            (the head at +y), the axe blade faces -z, the hammer +z
 //   shield:  the middle of its back, strapped to the forearm; its face
 //            looks along -x
+//   bows:    the middle of the grip (left hand); the limbs run along z
+//   crossbow, dagger: the grip (right hand); pointing along -z
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { smoothNormals } from './sculptedSurface.js';
 
@@ -66,6 +68,67 @@ export function createWeapon(name, { part, toon }) {
     add(new THREE.BoxGeometry(0.07, 0.07, 0.12).translate(0, 1.2, 0.1), 'darkSteel'); // hammer head
     add(new THREE.BoxGeometry(0.085, 0.085, 0.03).translate(0, 1.2, 0.17), 'darkSteel'); // (its striking face)
     add(new THREE.CylinderGeometry(0.024, 0.024, 0.16, 10).translate(0, 0, 0), 'leather'); // grip wrapping
+  } else if (name === 'shortbow' || name === 'longbow') {
+    // A simple wooden bow: two limbs curving back from the grip to the tips,
+    // the string straight between them. Held in the left hand: the limbs run
+    // along z, bowing away from the archer (-y), the string towards them.
+    const long = name === 'longbow';
+    const half = long ? 0.82 : 0.48, bulge = long ? 0.11 : 0.1;
+    const tipY = 0.02;
+    const limb = [];
+    for (let i = 0; i <= 16; i++) {
+      const z = -half + (2 * half * i) / 16;
+      const u = z / half;
+      // (A recurve at the tips of the short bow.)
+      const recurve = long ? 0 : 0.03 * Math.max(Math.abs(u) - 0.8, 0) / 0.2;
+      limb.push(new THREE.Vector3(0, -bulge * (1 - u * u) + tipY - recurve, z));
+    }
+    add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(limb), 48, long ? 0.014 : 0.013, 8), long ? '#7a4a24' : 'wood');
+    add(new THREE.CylinderGeometry(0.022, 0.022, 0.13, 10).rotateX(Math.PI / 2).translate(0, -bulge + tipY, 0), 'leather'); // grip
+    const ends = [limb[0], limb[limb.length - 1]];
+    const string = new THREE.CylinderGeometry(0.0025, 0.0025, ends[1].distanceTo(ends[0]), 4).rotateX(Math.PI / 2).translate(0, ends[0].y, 0);
+    add(string, '#eee6cf');
+    group.userData.stringY = ends[0].y;
+  } else if (name === 'crossbow') {
+    // A crossbow: a wooden stock along -z (the front), a steel bow (the prod)
+    // across its front, the string drawn back to the latch, and a bolt ready.
+    add(new THREE.BoxGeometry(0.05, 0.06, 0.6).translate(0, 0.04, -0.07), 'wood');           // stock
+    add(new THREE.BoxGeometry(0.06, 0.1, 0.16).translate(0, 0.01, 0.2), 'wood');             // butt
+    add(new THREE.BoxGeometry(0.03, 0.08, 0.04).translate(0, -0.03, 0.02), 'leather');       // trigger grip
+    const prod = [];
+    for (let i = 0; i <= 12; i++) {
+      const x = -0.3 + (0.6 * i) / 12, u = x / 0.3;
+      prod.push(new THREE.Vector3(x, 0.07, -0.36 - 0.06 * (1 - u * u)));
+    }
+    add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(prod), 32, 0.012, 8), 'darkSteel');
+    add(new THREE.CylinderGeometry(0.002, 0.002, 0.6, 4).rotateZ(Math.PI / 2).translate(0, 0.07, -0.36), '#eee6cf'); // string
+    const bolt = createArrow('bolt', { part, toon });
+    bolt.position.set(0, 0.09, -0.12);
+    group.add(bolt);
+    group.userData.bolt = bolt;
+  } else if (name === 'dagger') {
+    // A short dagger: a leaf-shaped blade, a small guard, a wrapped grip.
+    add(bladeGeometry(0.2, 0.032, 0.006).translate(0, 0, -0.04), 'steel');
+    add(new THREE.BoxGeometry(0.08, 0.016, 0.02).translate(0, 0, -0.04), 'darkSteel');
+    add(new THREE.CylinderGeometry(0.012, 0.013, 0.08, 8).rotateX(Math.PI / 2), 'leather');
+    add(new THREE.SphereGeometry(0.016, 10, 8).translate(0, 0, 0.05), 'darkSteel');
+  }
+  return group;
+}
+
+// An arrow ('arrow', for bows) or a crossbow bolt ('bolt'), pointing along
+// -z, with its middle at the origin.
+export function createArrow(kind, { part, toon }) {
+  const group = new THREE.Group();
+  const bolt = kind === 'bolt';
+  const length = bolt ? 0.36 : 0.72;
+  const add = (geometry, color) => group.add(part(smoothNormals(geometry), toon(COLORS[color] ?? color)));
+  add(new THREE.CylinderGeometry(0.006, 0.006, length, 6).rotateX(Math.PI / 2), bolt ? 'darkSteel' : '#c9a36b');
+  add(new THREE.ConeGeometry(0.014, 0.06, 6).rotateX(-Math.PI / 2).translate(0, 0, -length / 2 - 0.02), 'steel');
+  for (const a of [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3]) {
+    const vane = new THREE.BoxGeometry(0.002, bolt ? 0.022 : 0.03, bolt ? 0.06 : 0.1).translate(0, bolt ? 0.014 : 0.019, length / 2 - (bolt ? 0.04 : 0.06));
+    vane.rotateZ(a);
+    add(vane, bolt ? '#3a3a3a' : '#e8e2d6');
   }
   return group;
 }

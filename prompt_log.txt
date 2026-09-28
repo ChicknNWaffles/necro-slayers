@@ -319,3 +319,9 @@ please make it so that instead of using click and e for the abilities, you switc
 please run the game so I can test the Halberd now. Make sure to switch it so that the player has the halberd
 
 please commit the changes
+
+the next class to create is "Archer". This is a player only class. The archer has 3 bows to choose between at character creation, the short bow, the long bow, and the cross bow. The short bow has the shortest range, the long bow has medium range (compared to the other two, all 3 are ranged weapons), and the cross bow has the longest range. The short bow has the shortest cooldown between firing arrows, the long bow has a slightly longer cooldown, and the crossbow's cooldown is replaced with a reload animation which must be done while standing (not walking) and is longer than the other two cooldowns. The long bow does more damage than the other two, and the other two do the same damage as each other. The cross bow is the easiest to aim, shooting exactly where pointed, the other two have a small amount of jitter in arrow trajectory, making aiming harder. short bow is easier to aim than long bow, but not as easy as cross bow. None of them should have so much jitter that they're unusable. All archers also get a dagger for if they are forced into mele range combat
+
+please run the game but first set it up for a manual test. Have the zombie not moving, have Evalyn not there, and give the player all 3 bows and the daggar
+
+please commit the changes

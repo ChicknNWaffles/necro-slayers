@@ -8,6 +8,7 @@ import {
 import {
   SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT, BEAM_IMPACT,
   STAB_IMPACT, SLASH_IMPACT, BASH_IMPACT, AXE_IMPACT, HAMMER_IMPACT,
+  SHORTBOW_RELEASE, LONGBOW_RELEASE, CROSSBOW_RELEASE, CROSSBOW_RELOAD,
 } from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
@@ -60,6 +61,8 @@ const player = {
   weapons: [],
   selectedSpell: 0, // which of their spells (or weapons) is in use (chosen with the number keys)
   blocking: false,  // holding up a shield
+  loaded: true,     // a crossbow with a bolt in it
+  reloadTime: 0,    // seconds spent reloading it so far
   cooldowns: {},
   casting: null,
 };
@@ -78,7 +81,17 @@ const CLASSES = {
     weapons: ['sword', 'shield', 'halberd'],
     slots: 2,
   },
+  // One of three bows (chosen at character creation), and a dagger for when
+  // enemies get too close. (The player only -- no NPC archers.)
+  archer: {
+    bows: ['shortbow', 'longbow', 'crossbow'],
+  },
 };
+
+// An archer's weapons: their bow, and a dagger.
+function chooseBow(characterClass, bow) {
+  return [CLASSES[characterClass].bows.includes(bow) ? bow : CLASSES[characterClass].bows[0], 'dagger'];
+}
 const PLAYER_SPELL_KEYS = ['1', '2', '3', '4']; // select the first spell with 1, the next with 2...
 
 // The player's spells: the ones they picked, if they're all ones their class
@@ -102,11 +115,13 @@ function chooseWeapons(characterClass, picks) {
 }
 
 // What the player chose, until there's a character creator: their class, and
-// their spells (a cleric) or weapons (a fighter). Change these to try another.
+// their spells (a cleric), weapons (a fighter) or bow (an archer). Change
+// these to try another.
 const PLAYER_CHOICES = {
-  characterClass: 'fighter',
+  characterClass: 'archer',   // 'cleric', 'fighter' or 'archer'
   spells: ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight'],
-  weapons: ['halberd'], // (or ['sword', 'shield'])
+  weapons: ['halberd'],       // (or ['sword', 'shield'])
+  bow: 'shortbow',            // 'shortbow', 'longbow' or 'crossbow'
 };
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
@@ -236,8 +251,25 @@ function toggleFollowing() {
 //   Smite: the enemy in front, within reach (a swing at the air, otherwise)
 //   Divine Blade: the enemy in front, within range -- or the ground ahead
 //   Cleansing Light: straight ahead
+// Aiming (a bow in hand): the camera moves over the shoulder and a crosshair shows.
+function isAiming() {
+  return Boolean(MOVES[playerSlots()[player.selectedSpell]]?.shot);
+}
+
 function selectSpell(slot) {
-  if (slot < playerSlots().length) player.selectedSpell = slot;
+  if (slot >= playerSlots().length) return;
+  if (slot !== player.selectedSpell && player.reloadTime > 0) stopReloading(); // (switching to the dagger mid-reload)
+  player.selectedSpell = slot;
+  showSelectedWeapon();
+}
+
+// An archer's dagger is only drawn while it's in use (the crossbow, held in
+// the same hand, is put away meanwhile).
+function showSelectedWeapon() {
+  if (!player.weapons.includes('dagger')) return;
+  const dagger = playerSlots()[player.selectedSpell] === 'daggerStab';
+  renderer.showPlayerWeapon('dagger', dagger);
+  renderer.showPlayerWeapon('crossbow', !dagger);
 }
 
 // What the number keys choose between: a cleric's spells, or the moves of a
@@ -254,6 +286,10 @@ const WEAPONS = {
   sword: { label: 'Sword', hands: 1, moves: ['stab', 'slash'] },
   shield: { label: 'Shield', hands: 1, moves: ['block', 'bash'] },
   halberd: { label: 'Halberd', hands: 2, moves: ['axeSlash', 'hammer'] },
+  shortbow: { label: 'Short Bow', hands: 2, moves: ['shortbowShot'] },
+  longbow: { label: 'Long Bow', hands: 2, moves: ['longbowShot'] },
+  crossbow: { label: 'Crossbow', hands: 2, moves: ['crossbowShot'] },
+  dagger: { label: 'Dagger', hands: 1, moves: ['daggerStab'] },
 };
 
 // The moves, used like spells (see landSpell):
@@ -262,7 +298,30 @@ const WEAPONS = {
 //     arc (rather than just the nearest); damage; knockback: how far it
 //     throws them back; stun: seconds they're stunned; sound: see playWeaponHit
 //   cooldown: seconds before the move can be used again (after it finishes)
+//   shot: an arrow (or bolt) shot at the crosshair -- range: how far it can
+//     reach; damage; jitter: how far off it can stray (radians); speed;
+//     reload: for a crossbow, which instead of a cooldown must be reloaded
+//     (standing still) after each shot
 const MOVES = {
+  // The short bow: the quickest to shoot, the shortest reach.
+  shortbowShot: {
+    label: 'Short Bow', gesture: 'shortbowShot', shot: { range: 16, damage: 10, jitter: 0.012, speed: 38, arrow: 'arrow' },
+    duration: 0.65, impact: SHORTBOW_RELEASE, cooldown: 0.1,
+  },
+  // The long bow: hits hardest, further, but slower to draw and harder to aim.
+  longbowShot: {
+    label: 'Long Bow', gesture: 'longbowShot', shot: { range: 24, damage: 16, jitter: 0.022, speed: 44, arrow: 'arrow' },
+    duration: 0.95, impact: LONGBOW_RELEASE, cooldown: 0.25,
+  },
+  // The crossbow: reaches furthest, and shoots exactly where it's aimed --
+  // but must be reloaded after every shot, standing still.
+  crossbowShot: {
+    label: 'Crossbow', detail: 'stand still to reload', gesture: 'crossbowShot',
+    shot: { range: 34, damage: 10, jitter: 0, speed: 55, arrow: 'bolt' },
+    duration: 0.55, impact: CROSSBOW_RELEASE, cooldown: 0, reload: CROSSBOW_RELOAD,
+  },
+  // The dagger: a quick stab, for when enemies get close.
+  daggerStab: { label: 'Dagger', gesture: 'stab', strike: true, range: 1.6, arc: 0.4, damage: 9, duration: 0.55, impact: STAB_IMPACT, cooldown: 0.05, sound: 'blade' },
   stab: { label: 'Stab', gesture: 'stab', strike: true, range: 2.1, arc: 0.3, damage: 15, duration: 0.65, impact: STAB_IMPACT, cooldown: 0.1, sound: 'blade' },
   slash: { label: 'Slash', gesture: 'slash', strike: true, range: 1.9, arc: 1.1, sweep: true, damage: 11, duration: 0.75, impact: SLASH_IMPACT, cooldown: 0.1, sound: 'blade' },
   block: { label: 'Block', detail: 'hold' },
@@ -275,11 +334,141 @@ const MOVES = {
 function useWeapon() {
   const name = playerSlots()[player.selectedSpell];
   const move = MOVES[name];
-  if (!move?.strike || player.casting || player.blocking || player.stunTime > 0 || (player.cooldowns[name] ?? 0) > 0) return;
+  if (!(move?.strike || move?.shot) || player.casting || player.blocking || player.stunTime > 0 || (player.cooldowns[name] ?? 0) > 0) return;
+  if (move.reload && !player.loaded) return; // (a crossbow must be reloaded first)
   player.casting = { spell: move, target: null, time: 0, landed: false };
   player.cooldowns[name] = move.duration + move.cooldown;
   renderer.playerGesture(move.gesture);
-  playSwing();
+  if (move.strike) playSwing();
+}
+
+// --- Archery ------------------------------------------------------------------
+
+// Arrows in flight: { from, position, velocity, travelled, shot, shooter, view }.
+const arrows = [];
+const ARROW_GRAVITY = 6;  // (a little drop -- aimed for, so they still pass through the crosshair)
+
+// Loosing an arrow (or bolt) at whatever's under the crosshair (up to the
+// bow's range), from the archer's bow. Bows stray a little; a crossbow doesn't.
+function shoot(shooter, move) {
+  const shot = move.shot;
+  const ray = renderer.aimRay();
+  const target = aimPoint(ray, shooter, shot.range);
+  const from = {
+    x: shooter.position.x - Math.sin(shooter.yaw) * 0.45,
+    y: shooter.position.y + 1.45,
+    z: shooter.position.z - Math.cos(shooter.yaw) * 0.45,
+  };
+  let dx = target.x - from.x, dy = target.y - from.y, dz = target.z - from.z;
+  const distance = Math.hypot(dx, dy, dz);
+  [dx, dy, dz] = jitter([dx / distance, dy / distance, dz / distance], shot.jitter);
+  // (Aimed a touch high, so that it drops back onto the line by the target.)
+  const time = distance / shot.speed;
+  const velocity = { x: dx * shot.speed, y: dy * shot.speed + 0.5 * ARROW_GRAVITY * time, z: dz * shot.speed };
+  arrows.push({ from, position: { ...from }, velocity, travelled: 0, shot, shooter, view: renderer.addArrow(shot.arrow) });
+  playSwing({ volume: 0.12 });
+  if (move.reload) {
+    player.loaded = false;
+    renderer.setPlayerLoaded(false);
+  }
+}
+
+// Turns a direction by a small random angle, up to `amount` radians (more
+// often a little than a lot).
+function jitter([x, y, z], amount) {
+  if (!amount) return [x, y, z];
+  const angle = amount * Math.sqrt(Math.random()), turn = Math.random() * Math.PI * 2;
+  // Two directions at right angles to it.
+  let [ux, uy, uz] = Math.abs(y) < 0.9 ? [-z, 0, x] : [1, 0, 0];
+  const ul = Math.hypot(ux, uy, uz);
+  [ux, uy, uz] = [ux / ul, uy / ul, uz / ul];
+  const [vx, vy, vz] = [y * uz - z * uy, z * ux - x * uz, x * uy - y * ux];
+  const c = Math.cos(angle), s = Math.sin(angle), a = Math.cos(turn), b = Math.sin(turn);
+  return [
+    x * c + (ux * a + vx * b) * s,
+    y * c + (uy * a + vy * b) * s,
+    z * c + (uz * a + vz * b) * s,
+  ];
+}
+
+// Where the crosshair's line first meets something past the archer -- an
+// enemy, or the floor -- or its furthest point in range.
+function aimPoint({ origin, direction }, shooter, range) {
+  const past = Math.hypot(shooter.position.x - origin.x, shooter.position.z - origin.z) + 0.6; // (skip the archer themselves)
+  let best = past + range;
+  for (const enemy of livingEnemies()) {
+    // (Where the line passes closest to their middle, and whether that's within their body.)
+    const cx = enemy.position.x - origin.x, cz = enemy.position.z - origin.z;
+    const flat = Math.hypot(direction.x, direction.z) || 1e-6;
+    const t = (cx * direction.x + cz * direction.z) / (flat * flat);
+    const px = origin.x + direction.x * t - enemy.position.x, pz = origin.z + direction.z * t - enemy.position.z;
+    const py = origin.y + direction.y * t - enemy.position.y;
+    if (t > past && Math.hypot(px, pz) < enemy.radius + 0.1 && py > 0 && py < 1.9 && t < best) best = t;
+  }
+  if (direction.y < 0) best = Math.min(best, (FLOOR.y + 0.02 - origin.y) / direction.y);
+  best = Math.min(best, past + range);
+  return { x: origin.x + direction.x * best, y: origin.y + direction.y * best, z: origin.z + direction.z * best };
+}
+
+function updateArrows(dt) {
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const arrow = arrows[i];
+    const { position: p, velocity: v, shot } = arrow;
+    const start = { ...p };
+    // (Beyond its range, it quickly drops away.)
+    v.y -= ARROW_GRAVITY * (arrow.travelled > shot.range ? 6 : 1) * dt;
+    p.x += v.x * dt; p.y += v.y * dt; p.z += v.z * dt;
+    arrow.travelled += Math.hypot(p.x - start.x, p.y - start.y, p.z - start.z);
+    renderer.moveArrow(arrow.view, p, v);
+    // Hitting an enemy (anywhere along this frame's flight)...
+    const hit = livingEnemies().find((enemy) => {
+      for (let k = 0; k <= 4; k++) {
+        const x = start.x + (p.x - start.x) * (k / 4), y = start.y + (p.y - start.y) * (k / 4), z = start.z + (p.z - start.z) * (k / 4);
+        const h = y - enemy.position.y;
+        if (Math.hypot(x - enemy.position.x, z - enemy.position.z) < enemy.radius + 0.05 && h > 0 && h < 1.9) return true;
+      }
+      return false;
+    });
+    if (hit) {
+      hurt(hit, shot.damage, arrow.shooter);
+      renderer.bloodSpatter({ x: p.x, y: p.y, z: p.z });
+      playWeaponHit('blade', { volume: 0.25 });
+      renderer.endArrow(arrow.view, { stick: false });
+      arrows.splice(i, 1);
+    } else if (p.y <= FLOOR.y || !isAboveFloor(p.x, p.z) && p.y < FLOOR.y - 5) {
+      // ...or sticking in the ground.
+      p.y = Math.max(p.y, FLOOR.y);
+      renderer.moveArrow(arrow.view, p, v);
+      renderer.endArrow(arrow.view);
+      arrows.splice(i, 1);
+    }
+  }
+}
+
+// A crossbow reloads by itself after a shot -- but only while the archer is
+// standing still (with it in hand): moving off stops the reload, which starts
+// over when they stop again.
+function updateReloading(dt) {
+  const name = playerSlots()[player.selectedSpell];
+  const move = MOVES[name];
+  if (!player.weapons.includes('crossbow') || player.loaded) return;
+  const standing = player.moveSpeed === 0 && player.onGround && !player.casting && player.stunTime <= 0 && move?.reload;
+  if (!standing) {
+    if (player.reloadTime > 0) stopReloading();
+    return;
+  }
+  if (player.reloadTime === 0) renderer.playerGesture('crossbowReload');
+  player.reloadTime += dt;
+  if (player.reloadTime >= move.reload) {
+    player.loaded = true;
+    player.reloadTime = 0;
+    renderer.setPlayerLoaded(true);
+  }
+}
+
+function stopReloading() {
+  player.reloadTime = 0;
+  renderer.cancelPlayerGesture();
 }
 
 // Holding up a shield (while left click is held, with Block selected).
@@ -765,6 +954,8 @@ function landSpell(caster, { spell, target }) {
     startBeam(spell, caster);
   } else if (spell.strike) {
     strike(caster, spell);
+  } else if (spell.shot) {
+    shoot(caster, spell);
   } else if (within(spell.range * 1.3)) {
     // (A close-range spell only lands if the target is still there and within reach.)
     hurt(target, spell.damage, caster);
@@ -1114,6 +1305,7 @@ const CAMERA_PITCH = { initial: 0.28, min: -0.2, max: 1.2 };
 const CAMERA_RETURN_RATE = 12; // how fast the camera swings back behind the player after Shift
 
 const camera = {
+  aiming: 0,       // 0-1: how far the camera has moved in over the shoulder, to aim (see isAiming)
   pitch: CAMERA_PITCH.initial,
   orbiting: false, // true while Shift is held
   yawOffset: 0,    // how far the camera has been swung away from behind the player
@@ -1325,8 +1517,10 @@ renderer.addFloor(FLOOR);
 player.characterClass = PLAYER_CHOICES.characterClass;
 if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells);
 if (CLASSES[player.characterClass].weapons) player.weapons = chooseWeapons(player.characterClass, PLAYER_CHOICES.weapons);
+if (CLASSES[player.characterClass].bows) player.weapons = chooseBow(player.characterClass, PLAYER_CHOICES.bow);
 renderer.addPlayer(player.appearance, { caster: player.spells.length > 0, weapons: player.weapons });
 player.view = renderer.playerModel;
+showSelectedWeapon();
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
 
 // The HUD (see hud.js): the party's health bars, with their portraits, and
@@ -1362,10 +1556,14 @@ function updateHud() {
     combat: combat.active,
     spells: {
       selected: player.selectedSpell,
-      recharging: playerSlots().map((name) => (MOVES[name]
-        ? (player.cooldowns[name] ?? 0) / (MOVES[name].duration + MOVES[name].cooldown) || 0
-        : (player.cooldowns[name] ?? 0) / SPELLS[name].cooldown)),
+      recharging: playerSlots().map((name) => {
+        if (MOVES[name]?.reload) return player.loaded ? 0 : 1 - player.reloadTime / MOVES[name].reload;
+        return MOVES[name]
+          ? (player.cooldowns[name] ?? 0) / (MOVES[name].duration + MOVES[name].cooldown) || 0
+          : (player.cooldowns[name] ?? 0) / SPELLS[name].cooldown;
+      }),
     },
+    aiming: isAiming(),
     party: partyMembers().map((member) => ({
       id: member, health: member.health, maxHealth: member.maxHealth,
       effects: { shield: member.shieldTime, aid: member.empowerTime },
@@ -1456,6 +1654,8 @@ function frame(now) {
   updateStorms(dt);
   updateShields(dt);
   updatePlayerCasting(dt);
+  updateArrows(dt);
+  updateReloading(dt);
   updateBeams(dt);
   updateStuns(dt);
   for (const npc of NPCS) {
@@ -1470,7 +1670,8 @@ function frame(now) {
     }, dt);
   }
   separateNpcs();
-  renderer.updateCamera({ yaw: getCameraYaw(), pitch: camera.pitch });
+  camera.aiming += ((isAiming() ? 1 : 0) - camera.aiming) * (1 - Math.exp(-10 * dt));
+  renderer.updateCamera({ yaw: getCameraYaw(), pitch: camera.pitch, aiming: camera.aiming });
   updateHud();
   renderer.render();
 

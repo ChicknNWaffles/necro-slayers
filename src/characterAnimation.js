@@ -101,6 +101,20 @@ const SHIELD_ARM = [[0.3, 0, 0.1], [0.9, 0, 0]];              // (...and left ar
 const HALBERD_ARMS = [[0.4, 0, 0.1], [1.0, 0, 0], [0.7, 0.5, -0.15], [1.2, 0, 0]];
 export const BLOCK_ARM = [[0.8, 1.57, 0], [1.9, -0.7, 0]];    // the shield raised in front of the chest
 
+// Archery. The moments an arrow (or bolt) is loosed, and how long reloading a
+// crossbow takes.
+export const SHORTBOW_RELEASE = 0.45;
+export const LONGBOW_RELEASE = 0.72;
+export const CROSSBOW_RELEASE = 0.2;
+export const CROSSBOW_RELOAD = 2.0;
+const BOW_REST = [[0.1, 0, 0.1], [0.1, 0, 0], [0, 0], [0.3, 0, 0.05], [1.1, 0, 0]]; // (the bow stance: right arm, head, left arm)
+const BOW_AIM = [[0.3, 0, 0.1], [0.3, 0, 0], [0, 0], [1.5, 0, 0], [0.05, 0, 0]];   // (the bow held out, the right hand going to the string)
+const BOW_DRAWN = [[1.5, 0.6, 0], [2.3, 0, 0], [0, 0], [1.5, 0, 0], [0.05, 0, 0]];  // (the string drawn back to the cheek)
+const BOW_LOOSED = [[1.35, 0.9, 0.25], [1.5, 0, 0], [0, 0], [1.5, 0, 0], [0.05, 0, 0]]; // (the hand flicking back as it lets go)
+const CROSSBOW_REST = [[0.3, 0, 0.05], [1.1, 0, 0], [0, 0], [0.45, 0.5, -0.1], [1.2, 0, 0]];
+const CROSSBOW_AIM = [[1.5, 0, 0.05], [0.1, 0, 0], [0.05, 0], [1.4, 0.4, -0.1], [0.6, 0, 0]];
+const CROSSBOW_KICK = [[1.65, 0, 0.05], [0.15, 0, 0], [0, 0], [1.55, 0.4, -0.1], [0.65, 0, 0]];
+
 // Gestures can also have tracks of [time, value] keys for:
 //   glow: how brightly the right hand glows (0-1), e.g. for a spell
 //   lean: how far the body leans forwards (radians)
@@ -255,6 +269,43 @@ Object.assign(GESTURES, {
     grip: [[0, [-1.0, 0, 0.6]], [0.38, [0.24, -0.17, 3.04]], [0.62, [-2.88, -3.09, -0.08]], [0.8, [-2.88, -3.09, -0.08]], [1.15, [-1.0, 0, 0.6]]],
     lean: [[0, 0], [0.38, -0.12], [0.62, 0.3], [0.8, 0.28], [1.15, 0]],
   },
+  // Shooting a short bow: the bow raised out in front on the left arm, the
+  // string drawn back to the cheek, and loosed (at SHORTBOW_RELEASE).
+  shortbowShot: {
+    duration: 0.65,
+    ease: [0.08, 0.15],
+    keys: [[0, ...BOW_REST], [0.18, ...BOW_AIM], [0.4, ...BOW_DRAWN], [0.47, ...BOW_LOOSED], [0.65, ...BOW_REST]],
+  },
+  // A long bow: the same, but a longer, harder draw, held a moment to aim.
+  longbowShot: {
+    duration: 0.95,
+    ease: [0.08, 0.15],
+    keys: [[0, ...BOW_REST], [0.22, ...BOW_AIM], [0.55, ...BOW_DRAWN], [0.7, ...BOW_DRAWN], [0.75, ...BOW_LOOSED], [0.95, ...BOW_REST]],
+    lean: [[0, 0], [0.55, -0.04], [0.7, -0.04], [0.95, 0]],
+  },
+  // A crossbow: brought up to the shoulder, fired (at CROSSBOW_RELEASE) with a
+  // kick, and lowered.
+  crossbowShot: {
+    duration: 0.55,
+    ease: [0.06, 0.15],
+    keys: [[0, ...CROSSBOW_REST], [0.16, ...CROSSBOW_AIM], [0.2, ...CROSSBOW_AIM], [0.26, ...CROSSBOW_KICK], [0.4, ...CROSSBOW_AIM], [0.55, ...CROSSBOW_REST]],
+    lean: [[0, 0], [0.2, 0], [0.26, -0.06], [0.45, 0], [0.55, 0]],
+  },
+  // Reloading a crossbow (CROSSBOW_RELOAD seconds): pointed at the ground,
+  // the left hand hauls the string back to the latch, and a bolt is set.
+  crossbowReload: {
+    duration: CROSSBOW_RELOAD,
+    ease: [0.2, 0.25],
+    keys: [
+      [0, ...CROSSBOW_REST],
+      [0.35, [0.1, 0, 0.1], [0.6, 0, 0], [0.3, 0], [0.5, 0.3, -0.15], [1.2, 0, 0]],
+      [0.9, [0.1, 0, 0.1], [0.6, 0, 0], [0.3, 0], [0.9, 0.3, -0.15], [2.0, 0, 0]],
+      [1.3, [0.1, 0, 0.1], [0.6, 0, 0], [0.3, 0], [0.4, 0.3, -0.15], [1.4, 0, 0]],
+      [1.6, [0.1, 0, 0.1], [0.6, 0, 0], [0.25, 0], [0.5, 0.2, -0.1], [1.6, 0, 0]],
+      [2.0, ...CROSSBOW_REST],
+    ],
+    lean: [[0, 0], [0.35, 0.12], [1.6, 0.12], [2.0, 0]],
+  },
   // Casting a beam (Cleansing Light): the hand draws back to the shoulder,
   // lighting up, then thrusts straight out, palm forwards and fingers up, and
   // holds there while the beam shines from it (from BEAM_IMPACT).
@@ -396,6 +447,11 @@ export class CharacterAnimator {
   // Start a gesture (see GESTURES), replacing any that is playing.
   gesture(name) {
     if (GESTURES[name]) this.current = { gesture: GESTURES[name], time: 0 };
+  }
+
+  // Stop a gesture partway (e.g. reloading, interrupted by walking off).
+  cancelGesture() {
+    this.current = null;
   }
 
   // Being hit: the body jolts back and the head snaps back, briefly.

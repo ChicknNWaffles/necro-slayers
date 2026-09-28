@@ -3,6 +3,10 @@
 // renderer what exists and where it is; the renderer only draws it.
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { CharacterModel, glowTexture } from './characterModel.js';
+import { createArrow } from './weaponModel.js';
+
+// The camera while aiming a bow: closer, and over the right shoulder.
+const AIM_CAMERA = { distance: 3.0, side: 0.75, up: 0.2 };
 
 const PORTRAIT_BACKGROUND = '#d9e4ee'; // (matches the portrait frames in style.css)
 
@@ -419,7 +423,7 @@ export class GameRenderer {
       this.scene.remove(effect.group);
       effect.group.traverse((o) => {
         if (!o.geometry?.userData.shared) o.geometry?.dispose(); // (shared shapes, like the sword's, are kept)
-        o.material?.dispose();
+        if (o.material !== arrowOutline && ![...arrowMaterials.values()].includes(o.material)) o.material?.dispose();
       });
       return false;
     });
@@ -449,18 +453,70 @@ export class GameRenderer {
   // Place the camera around the player.
   // yaw:   which direction the camera looks horizontally (same convention as the player)
   // pitch: how far above the player the camera sits, in radians (negative = below)
-  updateCamera({ yaw, pitch }) {
+  // aiming: 0-1 -- moves the camera in closer, over the player's right
+  //   shoulder, so the middle of the screen (where a crosshair goes) is clear
+  //   of them
+  updateCamera({ yaw, pitch, aiming = 0 }) {
     const { distance, pivotHeight } = CAMERA;
     const p = this.player.position;
+    const d = distance - (distance - AIM_CAMERA.distance) * aiming;
+    const side = AIM_CAMERA.side * aiming, up = AIM_CAMERA.up * aiming;
+    const rightX = Math.cos(yaw), rightZ = -Math.sin(yaw); // (the camera's right, on the ground)
+    const pivot = { x: p.x + rightX * side, y: p.y + pivotHeight + up, z: p.z + rightZ * side };
 
-    // Camera sits `distance` away from the pivot, opposite to the direction it faces.
-    const horizontal = Math.cos(pitch) * distance;
+    // Camera sits `d` away from the pivot, opposite to the direction it faces.
+    const horizontal = Math.cos(pitch) * d;
     this.camera.position.set(
-      p.x + Math.sin(yaw) * horizontal,
-      Math.max(p.y + pivotHeight + Math.sin(pitch) * distance, CAMERA_MIN_HEIGHT),
-      p.z + Math.cos(yaw) * horizontal,
+      pivot.x + Math.sin(yaw) * horizontal,
+      Math.max(pivot.y + Math.sin(pitch) * d, CAMERA_MIN_HEIGHT),
+      pivot.z + Math.cos(yaw) * horizontal,
     );
-    this.camera.lookAt(p.x, p.y + pivotHeight, p.z);
+    this.camera.lookAt(pivot.x, pivot.y, pivot.z);
+  }
+
+  // The line through the middle of the screen, from the camera, in the world
+  // (for aiming): { origin, direction } -- plain { x, y, z } objects.
+  aimRay() {
+    this.camera.updateMatrixWorld();
+    const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const { x, y, z } = this.camera.position;
+    return { origin: { x, y, z }, direction: { x: direction.x, y: direction.y, z: direction.z } };
+  }
+
+  // Show or hide a weapon the player carries, and whether their crossbow is loaded.
+  showPlayerWeapon(name, visible) {
+    this.playerModel.showWeapon(name, visible);
+  }
+
+  setPlayerLoaded(loaded) {
+    this.playerModel.setLoaded(loaded);
+  }
+
+  cancelPlayerGesture() {
+    this.playerModel.cancelGesture();
+  }
+
+  // An arrow (or bolt) in flight. Returns it, to be moved with moveArrow.
+  addArrow(kind) {
+    const arrow = createArrow(kind, { part: arrowPart, toon: arrowToon });
+    this.scene.add(arrow);
+    return arrow;
+  }
+
+  // position, direction: { x, y, z } (the way it's flying).
+  moveArrow(arrow, position, direction) {
+    arrow.position.set(position.x, position.y, position.z);
+    arrow.lookAt(position.x - direction.x, position.y - direction.y, position.z - direction.z); // (its tip is at -z)
+  }
+
+  // An arrow stops: left stuck where it landed for a while, then fades away
+  // (or, with stick: false, it's simply gone -- e.g. when it hits someone).
+  endArrow(arrow, { stick = true } = {}) {
+    if (!stick) {
+      this.scene.remove(arrow);
+      return;
+    }
+    this.addEffect({ group: arrow, age: 0, update: (age) => age < 4 });
   }
 
   // --- For the HUD (see hud.js) ------------------------------------------
@@ -581,4 +637,27 @@ function starTexture() {
     starMap.colorSpace = THREE.SRGBColorSpace;
   }
   return starMap;
+}
+
+// Arrows are drawn in the same toon style as the characters, with outlines.
+const arrowToonGradient = (() => {
+  const g = new THREE.DataTexture(new Uint8Array([150, 210, 255]), 3, 1, THREE.RedFormat);
+  g.minFilter = g.magFilter = THREE.NearestFilter;
+  g.needsUpdate = true;
+  return g;
+})();
+const arrowMaterials = new Map();
+function arrowToon(color) {
+  if (!arrowMaterials.has(color)) arrowMaterials.set(color, new THREE.MeshToonMaterial({ color, gradientMap: arrowToonGradient }));
+  return arrowMaterials.get(color);
+}
+const arrowOutline = new THREE.MeshBasicMaterial({ color: '#2b2030', side: THREE.BackSide });
+arrowOutline.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+  transformed += normalize(normal) * 0.0025;`);
+};
+function arrowPart(geometry, material) {
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.add(new THREE.Mesh(geometry, arrowOutline));
+  return mesh;
 }
