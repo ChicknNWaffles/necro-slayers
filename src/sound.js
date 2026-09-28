@@ -657,3 +657,304 @@ export function playWeaponHit(kind, { volume = 0.35 } = {}) {
     thud(260, 120, 0.1, 0.5);
   }
 }
+
+// --- Fireball ------------------------------------------------------------------
+
+// Throwing a fireball: a quick, rising rush of flame (a roaring whoosh) as it
+// gathers and flies.
+export function playFireball({ volume = 0.3 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.setValueAtTime(0.001, t);
+  out.gain.exponentialRampToValueAtTime(volume, t + 0.4);
+  out.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+  out.connect(ac.destination);
+  // The roar: low, rough noise, surging.
+  const roar = ac.createBufferSource();
+  roar.buffer = rumbleBuffer(ac);
+  const roarTone = ac.createBiquadFilter();
+  roarTone.type = 'lowpass';
+  roarTone.frequency.setValueAtTime(300, t);
+  roarTone.frequency.exponentialRampToValueAtTime(1200, t + 0.45);
+  roar.connect(roarTone).connect(out);
+  roar.start(t, Math.random() * 3);
+  roar.stop(t + 1.15);
+  // The whoosh: brighter noise sweeping up.
+  const whoosh = ac.createBufferSource();
+  whoosh.buffer = noiseBuffer(ac);
+  const whooshTone = ac.createBiquadFilter();
+  whooshTone.type = 'bandpass';
+  whooshTone.Q.value = 1;
+  whooshTone.frequency.setValueAtTime(500, t);
+  whooshTone.frequency.exponentialRampToValueAtTime(2500, t + 0.45);
+  const whooshLevel = ac.createGain();
+  whooshLevel.gain.value = 0.6;
+  whoosh.connect(whooshTone).connect(whooshLevel).connect(out);
+  whoosh.start(t, Math.random());
+  whoosh.stop(t + 1.15);
+}
+
+// A fireball bursting: a deep boom, with crackling flame after.
+export function playExplosion({ volume = 0.45 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+  const boom = ac.createOscillator();
+  boom.frequency.setValueAtTime(90, t);
+  boom.frequency.exponentialRampToValueAtTime(30, t + 0.5);
+  const boomGain = ac.createGain();
+  boomGain.gain.setValueAtTime(1.2, t);
+  boomGain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+  boom.connect(boomGain).connect(out);
+  boom.start(t);
+  boom.stop(t + 0.65);
+  const blast = ac.createBufferSource();
+  blast.buffer = rumbleBuffer(ac);
+  const blastGain = ac.createGain();
+  blastGain.gain.setValueAtTime(2, t);
+  blastGain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+  blast.connect(blastGain).connect(out);
+  blast.start(t, Math.random() * 3);
+  blast.stop(t + 0.85);
+  // Crackles: little sharp pops, dying away.
+  for (let i = 0; i < 9; i++) {
+    const at = t + 0.05 + Math.random() * 0.6;
+    const pop = ac.createBufferSource();
+    pop.buffer = noiseBuffer(ac);
+    const tone = ac.createBiquadFilter();
+    tone.type = 'bandpass';
+    tone.frequency.value = 1500 + Math.random() * 2500;
+    tone.Q.value = 2;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.35 * (1 - (at - t) / 0.7), at);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.03);
+    pop.connect(tone).connect(gain).connect(out);
+    pop.start(at, Math.random());
+    pop.stop(at + 0.04);
+  }
+}
+
+// --- Vine Trap -----------------------------------------------------------------
+
+// Vines bursting from the ground and twining round someone: a crumbling burst
+// of earth, then a rush of creaking, rustling growth. (With grow: false, the
+// softer rustle of them unwinding and sinking back.)
+export function playVines({ grow = true, volume = 0.3 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume * (grow ? 1 : 0.6);
+  out.connect(ac.destination);
+  const length = grow ? 0.8 : 0.6;
+  if (grow) {
+    // The ground breaking: a low, crumbly thump.
+    const earth = ac.createBufferSource();
+    earth.buffer = rumbleBuffer(ac);
+    const earthGain = ac.createGain();
+    earthGain.gain.setValueAtTime(1.6, t);
+    earthGain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    earth.connect(earthGain).connect(out);
+    earth.start(t, Math.random() * 3);
+    earth.stop(t + 0.4);
+  }
+  // Rustling leaves: soft noise, rising (or falling) in pitch.
+  const rustle = ac.createBufferSource();
+  rustle.buffer = noiseBuffer(ac);
+  const tone = ac.createBiquadFilter();
+  tone.type = 'bandpass';
+  tone.Q.value = 0.9;
+  tone.frequency.setValueAtTime(grow ? 1500 : 3000, t);
+  tone.frequency.exponentialRampToValueAtTime(grow ? 3500 : 1200, t + length);
+  const rustleGain = ac.createGain();
+  rustleGain.gain.setValueAtTime(0.001, t);
+  rustleGain.gain.exponentialRampToValueAtTime(0.7, t + 0.08);
+  rustleGain.gain.exponentialRampToValueAtTime(0.001, t + length);
+  rustle.connect(tone).connect(rustleGain).connect(out);
+  rustle.start(t, Math.random());
+  rustle.stop(t + length + 0.05);
+  // Creaks: little woody squeaks as the vines stretch and tighten.
+  for (let i = 0; i < (grow ? 6 : 3); i++) {
+    const at = t + 0.05 + Math.random() * (length - 0.15);
+    const creak = ac.createOscillator();
+    creak.type = 'sawtooth';
+    const pitch = 180 + Math.random() * 160;
+    creak.frequency.setValueAtTime(pitch, at);
+    creak.frequency.linearRampToValueAtTime(pitch * (grow ? 1.4 : 0.7), at + 0.09);
+    const soften = ac.createBiquadFilter();
+    soften.type = 'bandpass';
+    soften.frequency.value = 900;
+    soften.Q.value = 3;
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.001, at);
+    gain.gain.exponentialRampToValueAtTime(0.35, at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.1);
+    creak.connect(soften).connect(gain).connect(out);
+    creak.start(at);
+    creak.stop(at + 0.12);
+  }
+}
+
+// --- Power Shove ---------------------------------------------------------------
+
+// A Power Shove: a deep, heavy whump of force and a rush of air as it's
+// pushed out -- then, when it lands (with hit: true), a hollow thud.
+export function playShove({ hit = false, volume = 0.4 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume * (hit ? 0.9 : 1);
+  out.connect(ac.destination);
+  const whump = ac.createOscillator();
+  whump.frequency.setValueAtTime(hit ? 120 : 85, t);
+  whump.frequency.exponentialRampToValueAtTime(hit ? 45 : 38, t + 0.25);
+  const whumpGain = ac.createGain();
+  whumpGain.gain.setValueAtTime(0.001, t);
+  whumpGain.gain.exponentialRampToValueAtTime(1.3, t + 0.02);
+  whumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  whump.connect(whumpGain).connect(out);
+  whump.start(t);
+  whump.stop(t + 0.35);
+  // Rushing air (or, on landing, the dull slap of it hitting).
+  const air = ac.createBufferSource();
+  air.buffer = noiseBuffer(ac);
+  const tone = ac.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(hit ? 900 : 2400, t);
+  tone.frequency.exponentialRampToValueAtTime(hit ? 200 : 400, t + 0.3);
+  const airGain = ac.createGain();
+  airGain.gain.setValueAtTime(hit ? 1.4 : 0.9, t);
+  airGain.gain.exponentialRampToValueAtTime(0.001, t + (hit ? 0.2 : 0.35));
+  air.connect(tone).connect(airGain).connect(out);
+  air.start(t, Math.random());
+  air.stop(t + 0.4);
+}
+
+// --- Wall of Earth -------------------------------------------------------------
+
+// A wall of earth bursting up: a deep, grinding rumble rising, with stones
+// clattering. (With rise: false, crumbling: a rumble falling away and dirt
+// pattering down.)
+export function playEarth({ rise = true, volume = 0.5 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+  const length = rise ? 0.7 : 1.0;
+  const rumble = ac.createBufferSource();
+  rumble.buffer = rumbleBuffer(ac);
+  const tone = ac.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(rise ? 250 : 600, t);
+  tone.frequency.exponentialRampToValueAtTime(rise ? 700 : 150, t + length);
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(0.001, t);
+  gain.gain.exponentialRampToValueAtTime(2.2, t + (rise ? 0.1 : 0.05));
+  gain.gain.exponentialRampToValueAtTime(0.001, t + length);
+  rumble.connect(tone).connect(gain).connect(out);
+  rumble.start(t, Math.random() * 3);
+  rumble.stop(t + length + 0.05);
+  // Stones and clods: little knocks and patters.
+  for (let i = 0; i < (rise ? 8 : 16); i++) {
+    const at = t + Math.random() * length * 0.9;
+    const knock = ac.createBufferSource();
+    knock.buffer = noiseBuffer(ac);
+    const knockTone = ac.createBiquadFilter();
+    knockTone.type = 'bandpass';
+    knockTone.frequency.value = 600 + Math.random() * 1400;
+    knockTone.Q.value = 3;
+    const knockGain = ac.createGain();
+    knockGain.gain.setValueAtTime(0.5 * Math.random() + 0.2, at);
+    knockGain.gain.exponentialRampToValueAtTime(0.001, at + 0.04);
+    knock.connect(knockTone).connect(knockGain).connect(out);
+    knock.start(at, Math.random());
+    knock.stop(at + 0.05);
+  }
+}
+
+// --- Leach Bomb ------------------------------------------------------------------
+
+// A leech slapped onto someone: a wet squelch.
+export function playSquelch({ volume = 0.35 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+  const wet = ac.createBufferSource();
+  wet.buffer = noiseBuffer(ac);
+  const tone = ac.createBiquadFilter();
+  tone.type = 'bandpass';
+  tone.Q.value = 4;
+  tone.frequency.setValueAtTime(1400, t);
+  tone.frequency.exponentialRampToValueAtTime(300, t + 0.18);
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(1.3, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+  wet.connect(tone).connect(gain).connect(out);
+  wet.start(t, Math.random());
+  wet.stop(t + 0.25);
+}
+
+// The leech throbbing as it swells: a soft, wet, low pulse (played once per
+// throb, faster and faster; urgency 0-1 raises it in pitch and volume).
+export function playThrob(urgency = 0, { volume = 0.25 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const tone = ac.createOscillator();
+  tone.frequency.setValueAtTime(90 + 90 * urgency, t);
+  tone.frequency.exponentialRampToValueAtTime(55 + 60 * urgency, t + 0.1);
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(volume * (0.5 + 0.5 * urgency), t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  tone.connect(gain).connect(ac.destination);
+  tone.start(t);
+  tone.stop(t + 0.14);
+}
+
+// --- Burning Ground ------------------------------------------------------------
+
+// The ground catching light: a sudden whoosh of flame; then (loop) the steady
+// crackle of burning coals for `seconds`, fading at the end.
+export function playIgnite({ seconds = 8, volume = 0.3 } = {}) {
+  const ac = startAudio();
+  const t = ac.currentTime;
+  const out = ac.createGain();
+  out.gain.value = volume;
+  out.connect(ac.destination);
+  // The whoosh.
+  const whoosh = ac.createBufferSource();
+  whoosh.buffer = rumbleBuffer(ac);
+  const tone = ac.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(300, t);
+  tone.frequency.exponentialRampToValueAtTime(1500, t + 0.3);
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(0.001, t);
+  gain.gain.exponentialRampToValueAtTime(2, t + 0.1);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+  whoosh.connect(tone).connect(gain).connect(out);
+  whoosh.start(t, Math.random() * 3);
+  whoosh.stop(t + 0.85);
+  // The crackle: little pops scattered through the time it burns.
+  const pops = Math.floor(seconds * 9);
+  for (let i = 0; i < pops; i++) {
+    const at = t + 0.2 + Math.random() * seconds;
+    const fade = Math.min(1, (t + seconds + 0.2 - at) / 1.5);
+    const pop = ac.createBufferSource();
+    pop.buffer = noiseBuffer(ac);
+    const popTone = ac.createBiquadFilter();
+    popTone.type = 'bandpass';
+    popTone.frequency.value = 1200 + Math.random() * 3000;
+    popTone.Q.value = 2;
+    const popGain = ac.createGain();
+    popGain.gain.setValueAtTime((0.1 + Math.random() * 0.25) * fade, at);
+    popGain.gain.exponentialRampToValueAtTime(0.001, at + 0.03);
+    pop.connect(popTone).connect(popGain).connect(out);
+    pop.start(at, Math.random());
+    pop.stop(at + 0.04);
+  }
+}

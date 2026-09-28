@@ -79,6 +79,14 @@ export const SMITE_IMPACT = 0.42;
 export const INVOKE_IMPACT = 0.6;
 // The moment the beam of Cleansing Light shoots out.
 export const BEAM_IMPACT = 0.45;
+// The moment a fireball leaves the hands.
+export const FIREBALL_RELEASE = 0.42;
+// The moment the vines of Vine Trap burst from the ground.
+export const VINES_RISE = 0.55;
+// The moment a Power Shove is pushed out.
+export const SHOVE_RELEASE = 0.3;
+// The moment a leech is slapped onto its victim (Leach Bomb).
+export const LEECH_PLANT = 0.32;
 // The moment a healing touch (on someone else, or on one's own chest) takes effect.
 export const HEAL_IMPACT = 0.75;
 // The moments a zombie's scratch and bite connect (seconds into the gesture).
@@ -306,6 +314,62 @@ Object.assign(GESTURES, {
     ],
     lean: [[0, 0], [0.35, 0.12], [1.6, 0.12], [2.0, 0]],
   },
+  // Throwing a fireball: both hands drawn in together by the chest as the fire
+  // gathers between them, then thrust out forwards, palms first, loosing it
+  // (at FIREBALL_RELEASE).
+  fireball: {
+    duration: 0.85,
+    ease: [0.08, 0.2],
+    bothHands: true,
+    keys: [
+      [0.0, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0], [0.2, 0, 0.1], [0.2, 0, 0]],
+      [0.28, [0.55, 0.55, 0.1], [1.9, 0, 0], [0.08, 0], [0.55, 0.55, 0.1], [1.9, 0, 0]],
+      [0.42, [1.45, -0.2, 0.05], [0.15, 0, 0], [0, 0], [1.45, -0.2, 0.05], [0.15, 0, 0]],
+      [0.6, [1.4, -0.2, 0.05], [0.2, 0, 0], [0, 0], [1.4, -0.2, 0.05], [0.2, 0, 0]],
+      [0.85, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0], [0.2, 0, 0.1], [0.2, 0, 0]],
+    ],
+    wrist: [[0, [0, 0, 0]], [0.28, [0.3, 0, 0]], [0.42, [1.0, 0, 0]], [0.6, [1.0, 0, 0]], [0.85, [0, 0, 0]]],
+    glow: [[0, 0], [0.2, 0.7], [0.4, 1], [0.5, 0.6], [0.7, 0]],
+    lean: [[0, 0], [0.28, -0.06], [0.42, 0.12], [0.6, 0.08], [0.85, 0]],
+  },
+  // Power Shove: the right hand drawn back to the shoulder, crackling violet,
+  // then shoved out hard, palm first (at SHOVE_RELEASE), the body driving in
+  // behind it.
+  shove: {
+    duration: 0.7,
+    ease: [0.06, 0.2],
+    glowKind: 'arcane',
+    keys: [
+      [0.0, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0]],
+      [0.2, [1.0, 0, 0.35], [1.7, 0, 0], [0, 0]],
+      [0.3, [1.5, 0, 0.1], [0.05, 0, 0], [0, 0]],
+      [0.45, [1.5, 0, 0.1], [0.08, 0, 0], [0, 0]],
+      [0.7, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0]],
+    ],
+    wrist: [[0, [0, 0, 0]], [0.2, [0.4, 0, 0]], [0.3, [1.1, 0, 0]], [0.45, [1.1, 0, 0]], [0.7, [0, 0, 0]]],
+    glow: [[0, 0], [0.15, 0.8], [0.3, 1], [0.45, 0.5], [0.6, 0]],
+    lean: [[0, 0], [0.2, -0.08], [0.3, 0.15], [0.45, 0.1], [0.7, 0]],
+    twist: [[0, 0], [0.2, -0.25], [0.3, 0.1], [0.7, 0]],
+  },
+  // Summoning vines (Vine Trap): both hands swept down low towards the ground
+  // at the target, glowing green, then raised sharply, palms up, as if
+  // pulling the vines up out of the earth (at VINES_RISE).
+  vineTrap: {
+    duration: 1.0,
+    ease: [0.1, 0.25],
+    bothHands: true,
+    glowKind: 'nature',
+    keys: [
+      [0.0, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0], [0.2, 0, 0.1], [0.2, 0, 0]],
+      [0.35, [0.7, 0, 0.35], [0.2, 0, 0], [0.2, 0], [0.7, 0, 0.35], [0.2, 0, 0]],
+      [0.55, [1.5, 0, 0.35], [0.5, 0, 0], [-0.05, 0], [1.5, 0, 0.35], [0.5, 0, 0]],
+      [0.75, [1.45, 0, 0.35], [0.5, 0, 0], [-0.05, 0], [1.45, 0, 0.35], [0.5, 0, 0]],
+      [1.0, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0], [0.2, 0, 0.1], [0.2, 0, 0]],
+    ],
+    wrist: [[0, [0, 0, 0]], [0.35, [-0.5, 0, 0]], [0.55, [-0.9, 0, 0]], [0.75, [-0.9, 0, 0]], [1.0, [0, 0, 0]]],
+    glow: [[0, 0], [0.25, 0.6], [0.5, 1], [0.7, 0.8], [0.95, 0]],
+    lean: [[0, 0], [0.35, 0.18], [0.55, -0.06], [0.75, -0.04], [1.0, 0]],
+  },
   // Casting a beam (Cleansing Light): the hand draws back to the shoulder,
   // lighting up, then thrusts straight out, palm forwards and fingers up, and
   // holds there while the beam shines from it (from BEAM_IMPACT).
@@ -354,6 +418,45 @@ Object.assign(GESTURES, {
     mouth: [[0, 0], [0.25, 0.6], [0.45, 1], [0.52, 0.1], [0.7, 0.15], [0.9, 0]],
   },
 });
+// Puzzled (a zombie at a wall): the head turning one way, then the other,
+// then back -- the arms kept reaching out as they are.
+GESTURES.lookAround = {
+  duration: 1.3,
+  ease: [0.15, 0.2],
+  keys: [
+    [0.0, [1.3, 0, 0.02], [0.35, 0, 0], [0, 0]],
+    [0.3, [1.2, 0.1, 0.02], [0.4, 0, 0], [0.1, 0.6]],
+    [0.75, [1.2, -0.1, 0.02], [0.4, 0, 0], [0.1, -0.6]],
+    [1.1, [1.3, 0, 0.02], [0.35, 0, 0], [0.05, 0.2]],
+    [1.3, [1.3, 0, 0.02], [0.35, 0, 0], [0, 0]],
+  ],
+  twist: [[0, 0], [0.3, 0.2], [0.75, -0.2], [1.1, 0.05], [1.3, 0]],
+};
+
+// Planting a leech (Leach Bomb): a quick reach, hand glowing a sickly green,
+// slapping it onto the victim (at LEECH_PLANT), then snatching the hand back.
+GESTURES.plantLeech = {
+  duration: 0.75,
+  ease: [0.06, 0.2],
+  glowKind: 'toxic',
+  keys: [
+    [0.0, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0]],
+    [0.18, [0.9, -0.1, 0.25], [1.2, 0.8, 0], [0.05, 0]],
+    [0.32, [1.35, -0.2, 0.05], [0.25, 0.9, 0], [0.1, 0]],
+    [0.45, [1.3, -0.2, 0.05], [0.3, 0.9, 0], [0.1, 0]],
+    [0.75, [0.2, 0, 0.1], [0.2, 0, 0], [0, 0]],
+  ],
+  glow: [[0, 0], [0.12, 0.8], [0.32, 1], [0.45, 0.3], [0.6, 0]],
+  lean: [[0, 0], [0.32, 0.15], [0.5, -0.05], [0.75, 0]],
+};
+
+// Setting the ground alight (Burning Ground): the same sweep down and heave
+// up as summoning vines, the hands glowing with fire.
+GESTURES.igniteGround = { ...GESTURES.vineTrap, glowKind: 'fire' };
+
+// Raising a wall (Wall of Earth): the same heave upwards as summoning vines,
+// but with a glow the colour of earth.
+GESTURES.raiseEarth = { ...GESTURES.vineTrap, glowKind: 'earth' };
 GESTURES.shieldTouch = GESTURES.aidTouch = GESTURES.healTouch;
 GESTURES.shieldSelf = GESTURES.aidSelf = GESTURES.healSelf;
 const GESTURE_EASE = { in: 0.25, out: 0.3 }; // seconds to blend into and out of a gesture
@@ -490,6 +593,8 @@ export class CharacterAnimator {
   playGesture(joints, dt) {
     this.mouthOpen = 0; // (how open the mouth is, 0-1)
     this.handGlow = 0;  // (how brightly the right hand glows, 0-1)
+    this.bothHandsGlow = false; // (and whether the left one does too)
+    this.glowKind = null;       // (and in what colour, if not the usual -- see GLOWS in characterModel.js)
     joints.rightWrist?.rotation.set(0, 0, 0);
     this.grip = null; // (how the weapon in the right hand is turned in the grip, if a gesture turns it)
     if (!this.current) return;
@@ -502,6 +607,8 @@ export class CharacterAnimator {
     if (gesture.speech) this.mouthOpen = mouthOpening(gesture.speech, t);
     if (gesture.mouth) this.mouthOpen = track(gesture.mouth, t);
     if (gesture.glow) this.handGlow = track(gesture.glow, t);
+    this.bothHandsGlow = Boolean(gesture.bothHands);
+    this.glowKind = gesture.glowKind ?? null;
     // Where the keyframes put the arm and head now (easing between keys).
     const { keys } = gesture;
     let k = 1;

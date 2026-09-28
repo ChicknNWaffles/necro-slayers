@@ -325,3 +325,25 @@ the next class to create is "Archer". This is a player only class. The archer ha
 please run the game but first set it up for a manual test. Have the zombie not moving, have Evalyn not there, and give the player all 3 bows and the daggar
 
 please commit the changes
+
+Now for the last class, "Mage". This is a player only class. Like Cleric, it has 6 spells, and the player chooses between 4 of them at character creation if they pick Mage. The first spell is "Fireball", it has the player shoot a fireball from their hands
+
+please make some spark particles around the orange light ball for fireball. Also, the second Mage spell is "Vine Trap". It summons vines out of the ground which rapidly grow, and restrain the target, this prevents the target from moving as they are being held by the vines. The spell wears off quickly though, causing the vines to untangle and retreat back into the ground
+
+the next mage spell is "Power Shove" it is a ranged spell that causes knockback
+
+power shove shouldn't do any damage. The next mage spell is "Wall of Earth" it summons a wall (about 3.5 units wide, a little over half a unit thick, and a unit taller than the player's average height) made of dirt out of the ground. When the spell wears off the wall crumbles and fades back into the ground. The wall has collision
+
+please make the zombies able to pathfind around the wall. They should go up to it, pause in front of it confused and then go around it. It should delay them not stop them completely. Yes, attacks and even spells should be blocked by the wall.  Also please make the wall actually crumble into pieces when the spell wears off, not just shake and give off particles
+
+please make it crumble from the top down, the top crumbling first, and then the bottom
+
+please make the transition from solid wall to clods of dirt happen layer by layer as it crumbles, not all at once before it crumbles
+
+The next mage spell is "Leach Bomb". This one is cast on touch to a target. It plants an exploding leach on the target, then has a delay, giving the player time to get away, before the leach explodes.
+
+the final mage spell is "Burning Ground", which turns the ground in a set area into burning coals until the spell wears off. This deals damage to anything standing/walking/running on that area of ground
+
+please make the edges of the area of the ground effected by Burning Ground more uneven and rough, so it  doesn't look like a perfect circle
+
+please commit the changes

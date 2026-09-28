@@ -52,7 +52,8 @@ const CLOTH_TOON_STEPS = [178, 222, 255];      // loose clothes: a little strong
 export class CharacterModel {
   // pose: how the character stands (see POSES), e.g. 'handsFolded' for an NPC.
   // decay: makes the character undead -- rot, torn clothes and wounds (see decayModel.js).
-  // caster: whether they cast spells (their right hand can glow, see handGlow).
+  // caster: whether they cast spells (their hands can glow, see handGlow) --
+  //   true, or the kind of magic: 'holy' (golden, the default) or 'fire'.
   // weapons: the weapons they carry, e.g. ['sword', 'shield'] (see WEAPON_GRIP).
   constructor(appearance, { pose = 'stand', decay = null, caster = false, weapons = [] } = {}) {
     this.root = new THREE.Group(); // add this to the scene; its origin is at the feet
@@ -86,7 +87,8 @@ export class CharacterModel {
       const wrist = this.joints[`${side}Wrist`];
       wrist.userData.bend.set(wrist.rotation.x, wrist.rotation.y, wrist.rotation.z);
     }
-    this.glow?.set(this.animator.handGlow);
+    // (A gesture can glow in another colour of its own, e.g. green for vines.)
+    this.glow?.set(this.animator.handGlow, this.animator.bothHandsGlow, GLOWS[this.animator.glowKind ?? this.glowKind] ?? GLOWS.holy);
     const moving = this.animator.moving;
     for (const sleeve of this.sleeves) sleeve.morphTargetInfluences[0] = moving; // (drape for hanging arms)
     if (this.skirt) {
@@ -163,7 +165,8 @@ export class CharacterModel {
     this.skirt = skirt;
     this.sleeves = sleeves;
     this.onSkirt = onSkirt;
-    this.glow = this.caster ? handGlow(joints) : null;
+    this.glow = this.caster ? handGlow(joints, GLOWS[this.caster] ?? GLOWS.holy) : null;
+    this.glowKind = this.caster;
     this.weapons = {};
     for (const name of this.weaponNames) {
       const grip = WEAPON_GRIP[name];
@@ -599,28 +602,45 @@ const WEAPON_GRIP = {
   dagger: { joint: 'rightElbow', position: [-0.005, -BODY.forearmLength - 0.1, -0.005], rotation: [-0.3, 0, 0] },
 };
 
-// A glow round the right hand, for casting spells: a bright core, a soft halo
-// and a warm light that lights up the character (and anything near). Always
-// there (dark when not in use), so the scene's lighting doesn't change.
-// Returns { set(amount) } -- amount 0 (off) to 1 (full).
-const GLOW = { color: '#ffd45c', core: '#fff4c2', size: 0.3, light: 0.35 };
+// A glow round the hands, for casting spells: a bright core, a soft halo and
+// a warm light that lights up the character (and anything near). Always there
+// (dark when not in use), so the scene's lighting doesn't change. Usually just
+// the right hand glows; some spells light up both.
+// Returns { set(amount, both) } -- amount 0 (off) to 1 (full).
+const GLOWS = {
+  holy: { color: '#ffd45c', core: '#fff4c2', size: 0.3, light: 0.35 },
+  fire: { color: '#ff7a1f', core: '#ffe0a0', size: 0.34, light: 0.5 },
+  nature: { color: '#6fdc4a', core: '#e2ffc4', size: 0.32, light: 0.45 },
+  arcane: { color: '#9a7cff', core: '#ece6ff', size: 0.34, light: 0.45 },
+  earth: { color: '#d68a3c', core: '#ffe2b8', size: 0.32, light: 0.4 },
+  toxic: { color: '#a8e03a', core: '#efffc0', size: 0.32, light: 0.45 },
+};
 
-function handGlow(joints) {
-  const glow = new THREE.Group();
-  glow.position.y = -BODY.forearmLength - 0.09; // (the middle of the hand)
+function handGlow(joints, GLOW) {
   const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: GLOW.core, ...additive }));
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: GLOW.color, ...additive }));
-  const light = new THREE.PointLight(GLOW.color, 0, 0.8, 2);
-  glow.add(core, halo, light);
-  joints.rightElbow.add(glow);
+  const hands = ['rightElbow', 'leftElbow'].map((joint) => {
+    const glow = new THREE.Group();
+    glow.position.y = -BODY.forearmLength - 0.09; // (the middle of the hand)
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: GLOW.core, ...additive }));
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: GLOW.color, ...additive }));
+    const light = new THREE.PointLight(GLOW.color, 0, 0.8, 2);
+    glow.add(core, halo, light);
+    joints[joint].add(glow);
+    return { core, halo, light };
+  });
   return {
-    set(amount = 0) {
-      core.visible = halo.visible = amount > 0.01;
-      core.material.opacity = 0.8 * amount;
-      halo.material.opacity = amount;
-      halo.scale.setScalar(GLOW.size * (0.6 + 0.4 * amount));
-      light.intensity = GLOW.light * amount;
+    set(amount = 0, both = false, colors = GLOW) {
+      hands.forEach(({ core, halo, light }, i) => {
+        core.material.color.set(colors.core);
+        halo.material.color.set(colors.color);
+        light.color.set(colors.color);
+        const a = i === 0 || both ? amount : 0;
+        core.visible = halo.visible = a > 0.01;
+        core.material.opacity = 0.8 * a;
+        halo.material.opacity = a;
+        halo.scale.setScalar(GLOW.size * (0.6 + 0.4 * a));
+        light.intensity = GLOW.light * a;
+      });
     },
   };
 }

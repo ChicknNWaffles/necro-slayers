@@ -5,6 +5,9 @@ import * as THREE from '../node_modules/three/build/three.module.js';
 import { CharacterModel, glowTexture } from './characterModel.js';
 import { createArrow } from './weaponModel.js';
 
+// How long a Wall of Earth takes to crumble away, from its top row to its bottom.
+export const WALL_CRUMBLE_TIME = 1.0;
+
 // The camera while aiming a bow: closer, and over the right shoulder.
 const AIM_CAMERA = { distance: 3.0, side: 0.75, up: 0.2 };
 
@@ -19,6 +22,7 @@ export class GameRenderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
+    this.renderer.localClippingEnabled = true; // (for walls crumbling away from the top -- see earthWall)
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -413,6 +417,7 @@ export class GameRenderer {
   }
 
   updateEffects(dt) {
+    this.lastDt = dt; // (for effects that move things along by it)
     // (Effects can start new ones as they go -- e.g. a landing sword's sparks --
     // which are collected separately and kept.)
     const current = this.effects;
@@ -483,6 +488,13 @@ export class GameRenderer {
     return { origin: { x, y, z }, direction: { x: direction.x, y: direction.y, z: direction.z } };
   }
 
+  // Where the middle of a character's right palm is (the player's if no
+  // model is given), as { x, y, z }.
+  palmPosition(model = this.playerModel) {
+    const { x, y, z } = model.palmPosition();
+    return { x, y, z };
+  }
+
   // Show or hide a weapon the player carries, and whether their crossbow is loaded.
   showPlayerWeapon(name, visible) {
     this.playerModel.showWeapon(name, visible);
@@ -494,6 +506,553 @@ export class GameRenderer {
 
   cancelPlayerGesture() {
     this.playerModel.cancelGesture();
+  }
+
+  // A fireball in flight: a white-hot core in a roiling orange blaze, with a
+  // warm light and a trail of embers. Moved with moveArrow; ended with
+  // endArrow (which leaves no trace -- see fireExplosion).
+  addFireball() {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffc27a', ...additive }));
+    const flames = [['#ff6a14', 0.7], ['#c8320a', 1.1], ['#ff9a30', 0.45]].map(([color, size]) => {
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, ...additive }));
+      flame.scale.setScalar(size);
+      flame.userData.size = size;
+      return flame;
+    });
+    const light = new THREE.PointLight('#ff8a2a', 3, 6, 2);
+    // Sparks crackling round it: darting about close to the ball, flickering.
+    const sparks = Array.from({ length: 10 }, () => {
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: Math.random() < 0.5 ? '#ffd27a' : '#ff9a3a', ...additive }));
+      spark.userData = { phase: Math.random() * 10, speed: 6 + Math.random() * 8, tilt: Math.random() * Math.PI, reach: 0.18 + Math.random() * 0.14 };
+      return spark;
+    });
+    group.add(core, ...flames, light, ...sparks);
+    this.scene.add(group);
+    group.userData.alive = true;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age, dt) => {
+        if (!group.userData.alive) return false;
+        flames.forEach((flame, i) => flame.scale.setScalar(flame.userData.size * (0.85 + 0.2 * Math.sin(age * (23 + i * 7) + i))));
+        for (const spark of sparks) {
+          const { phase, speed, tilt, reach } = spark.userData;
+          const a = phase + age * speed;
+          const r = reach * (0.8 + 0.3 * Math.sin(age * 17 + phase));
+          spark.position.set(Math.cos(a) * r, Math.sin(a) * Math.cos(tilt) * r, Math.sin(a) * Math.sin(tilt) * r);
+          const flicker = Math.max(Math.sin(age * 40 + phase * 3), 0);
+          spark.scale.setScalar(0.05 + 0.05 * flicker);
+          spark.material.opacity = 0.4 + 0.6 * flicker;
+        }
+        light.intensity = 2.5 + Math.sin(age * 31) * 0.6;
+        // Embers left behind, drifting up and fading.
+        group.userData.emberTime = (group.userData.emberTime ?? 0) + dt;
+        if (group.userData.emberTime > 0.025) {
+          group.userData.emberTime = 0;
+          this.sparks(group.position, 2, 0.4, { color: Math.random() < 0.5 ? '#ff8a2a' : '#ffcf5a', size: 0.14 });
+        }
+        return true;
+      },
+    });
+    return group;
+  }
+
+  // Wall of Earth: a wall of packed dirt bursting up out of the ground (in a
+  // spray of earth), standing for `duration` seconds, then crumbling -- chunks
+  // breaking off and tumbling as it sinks back into the ground and fades.
+  // position: { x, z } on the floor; angle: which way it runs (radians round
+  // the vertical, 0 = along x); size: { width, thickness, height }.
+  earthWall(position, angle, { width, thickness, height }, duration) {
+    const group = new THREE.Group();
+    group.position.set(position.x, 0, position.z);
+    group.rotation.y = angle;
+    // A rough, lumpy slab: a box with its surface pushed in and out, and a
+    // ragged top.
+    const geometry = new THREE.BoxGeometry(width, height, thickness, 18, 14, 3);
+    const pos = geometry.attributes.position;
+    const seed = Math.random() * 100;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const n = Math.sin(x * 5.1 + seed) * Math.cos(y * 4.3 + seed * 0.7) + 0.5 * Math.sin(x * 11 + y * 9 + seed);
+      const edge = Math.min(1, (height / 2 - Math.abs(y)) * 4 + 0.3);
+      z += Math.sign(z) * 0.04 * n * edge;
+      x += Math.sign(x) * 0.03 * n;
+      if (y > height / 2 - 0.01) y += 0.12 * (Math.sin(x * 3.7 + seed) + 0.6 * Math.sin(x * 8.3 + seed * 2));
+      pos.setXYZ(i, x, y + height / 2, z);
+    }
+    geometry.computeVertexNormals();
+    // (While it crumbles, everything above `cut` is gone -- turned into clods.)
+    const cut = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1000);
+    const material = new THREE.MeshToonMaterial({ color: '#7a5634', gradientMap: arrowToonGradient, clippingPlanes: [cut] });
+    const outline = new THREE.MeshBasicMaterial({ color: '#2b2030', side: THREE.BackSide, clippingPlanes: [cut] });
+    outline.onBeforeCompile = arrowOutline.onBeforeCompile;
+    const wall = new THREE.Mesh(geometry, material);
+    wall.castShadow = true;
+    wall.add(new THREE.Mesh(geometry, outline));
+    // Stones and clods stuck in it.
+    for (let i = 0; i < 14; i++) {
+      const stone = arrowPart(new THREE.DodecahedronGeometry(0.06 + Math.random() * 0.08), arrowToon(Math.random() < 0.5 ? '#8a8378' : '#5e4128'));
+      const side = Math.random() < 0.5 ? -1 : 1;
+      stone.position.set((Math.random() - 0.5) * width * 0.9, 0.2 + Math.random() * (height - 0.4), side * thickness * 0.5);
+      stone.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      stone.userData.stone = true;
+      wall.add(stone);
+    }
+    group.add(wall);
+    this.scene.add(group);
+    const rise = 0.45, crumble = 3.2;
+    let crumbled = false, chunks = [];
+    // Breaking the wall into lumpy chunks of earth (in a grid filling it).
+    // It crumbles from the top down: each row breaks away and falls in turn,
+    // the rows below standing until their turn comes (WALL_CRUMBLE_TIME in
+    // all, from the top row to the bottom).
+    const breakIntoChunks = () => {
+      const across = 7, up = 6, pieces = [];
+      for (let i = 0; i < across; i++) {
+        for (let j = 0; j < up; j++) {
+          const size = Math.min(width / across, height / up) * (0.95 + Math.random() * 0.3);
+          // (A rough clod: a many-sided lump, stretched to fill its part of
+          // the wall, its corners pushed in and out.)
+          const geometry = new THREE.IcosahedronGeometry(0.5, 1);
+          geometry.scale(width / across * 1.15, height / up * 1.15, thickness * 1.0);
+          const p = geometry.attributes.position;
+          const bumps = new Map();
+          for (let k = 0; k < p.count; k++) {
+            const key = `${p.getX(k).toFixed(3)},${p.getY(k).toFixed(3)},${p.getZ(k).toFixed(3)}`; // (moving shared corners together)
+            if (!bumps.has(key)) bumps.set(key, 0.78 + Math.random() * 0.35);
+            const b = bumps.get(key);
+            p.setXYZ(k, p.getX(k) * b, p.getY(k) * b, p.getZ(k) * b);
+          }
+          geometry.computeVertexNormals();
+          const chunk = arrowPart(geometry, arrowToon(Math.random() < 0.6 ? '#7a5634' : '#6a4a2c'));
+          const u = (i + 0.5) / across - 0.5, h = (j + 0.5) / up;
+          chunk.position.set(u * width, h * height, 0);
+          chunk.userData = {
+            size: size * 0.6,
+            row: j,
+            delay: (1 - (j + 1) / up) * WALL_CRUMBLE_TIME, // (when its row breaks away)
+            loosen: Math.random() * 0.1,                   // (and how long it clings on after)
+            velocity: new THREE.Vector3(u * 1.5 + (Math.random() - 0.5) * 0.8, Math.random() * 0.6, (Math.random() - 0.5) * 2.5),
+            spin: new THREE.Vector3((Math.random() - 0.5) * 8, 0, (Math.random() - 0.5) * 8),
+            landed: 0,
+          };
+          group.add(chunk);
+          pieces.push(chunk);
+        }
+      }
+      return pieces;
+    };
+    const dust = (count) => {
+      for (let k = 0; k < 5; k++) {
+        const u = (k / 4 - 0.5) * width;
+        const at = { x: position.x + Math.cos(angle) * u, y: 0.1, z: position.z - Math.sin(angle) * u };
+        this.sparks(at, count, 0.6, { color: '#6b4a2a', glow: false, size: 0.12 });
+      }
+    };
+    dust(6);
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        if (age < rise) {
+          // Bursting up: from below the ground, overshooting a little.
+          const t = age / rise;
+          wall.position.y = -height * (1 - t) ** 2 + 0.05 * Math.sin(Math.PI * t);
+        } else if (age < duration) {
+          wall.position.y = 0;
+        } else {
+          if (!crumbled) {
+            crumbled = true;
+            // It falls to pieces, row by row from the top: as each row goes,
+            // that part of the solid wall is replaced by the clods it breaks
+            // into, which tumble down.
+            dust(8);
+            chunks = breakIntoChunks();
+            for (const chunk of chunks) chunk.visible = false;
+            // (Showing the inside of the wall at the break, so it looks solid
+            // earth all the way through rather than hollow.)
+            material.side = THREE.DoubleSide;
+            material.needsUpdate = true;
+          }
+          const t = age - duration;
+          // How much of the solid wall is still standing: the rows not yet broken.
+          // (Row j, counting up from the bottom, breaks at (5 - j) / 6 of the way through.)
+          const rowsLeft = Math.max(0, Math.ceil(5 - (6 * t) / WALL_CRUMBLE_TIME - 1e-6));
+          const top = (rowsLeft / 6) * height;
+          wall.visible = rowsLeft > 0;
+          cut.constant = group.position.y + wall.position.y + top; // (the world height of the break)
+          wall.traverse((o) => { if (o !== wall && o.userData.stone) o.visible = o.position.y < top; });
+          for (const chunk of chunks) {
+            const c = chunk.userData;
+            if (t < c.delay) continue;
+            chunk.visible = true;
+            if (t < c.delay + c.loosen) continue;
+            if (!c.landed) {
+              c.velocity.y -= 12 * this.lastDt;
+              chunk.position.addScaledVector(c.velocity, this.lastDt);
+              chunk.rotation.x += c.spin.x * this.lastDt;
+              chunk.rotation.z += c.spin.z * this.lastDt;
+              if (chunk.position.y < c.size * 0.5) {
+                chunk.position.y = c.size * 0.5;
+                if (Math.abs(c.velocity.y) > 1.5) {
+                  c.velocity.y *= -0.3; // (a little bounce)
+                  c.velocity.x *= 0.5; c.velocity.z *= 0.5;
+                } else {
+                  c.landed = t;
+                }
+              }
+            } else {
+              // Settled: sinking back into the ground.
+              chunk.position.y = c.size * 0.5 - (t - c.landed) * 0.9;
+              chunk.visible = chunk.position.y > -c.size;
+            }
+          }
+        }
+        return age < duration + crumble;
+      },
+    });
+  }
+
+  // Burning Ground: a patch of ground turned to glowing coals -- a bed of
+  // dark embers glowing orange, lumps of coal, flickering flames and rising
+  // sparks -- for `duration` seconds, then dying down to ash and fading.
+  // position: { x, z } on the floor; radius: its size.
+  burningGround(position, radius, duration) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    group.position.set(position.x, 0.02, position.z);
+    // The bed of coals: dark, with a hot glow that pulses unevenly. Its edge
+    // is ragged -- pushed in and out at random all the way round, with a few
+    // tongues of scorched ground reaching further out -- rather than a circle.
+    const seed = Math.random() * 100;
+    const edge = (a) => 1
+      + 0.12 * Math.sin(a * 3 + seed) + 0.08 * Math.sin(a * 7 + seed * 1.7)
+      + 0.05 * Math.sin(a * 13 + seed * 2.3) + 0.12 * Math.max(Math.sin(a * 5 + seed * 0.6), 0) ** 4;
+    const raggedDisc = (size) => {
+      const shape = new THREE.Shape();
+      const steps = 96;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const r = size * edge(a) * (0.94 + 0.06 * Math.random());
+        if (i === 0) shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+        else shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      const g = new THREE.ShapeGeometry(shape).rotateX(Math.PI / 2);
+      // (Texture coordinates spread over the whole patch, for the glow.)
+      const p = g.attributes.position, uv = g.attributes.uv;
+      for (let i = 0; i < p.count; i++) uv.setXY(i, 0.5 + p.getX(i) / (size * 2.6), 0.5 + p.getZ(i) / (size * 2.6));
+      return g;
+    };
+    const bed = new THREE.Mesh(raggedDisc(radius), new THREE.MeshBasicMaterial({ color: '#2a1410', transparent: true, side: THREE.DoubleSide }));
+    const glow = new THREE.Mesh(raggedDisc(radius * 0.9).translate(0, 0.005, 0),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#ff5a10', side: THREE.DoubleSide, ...additive }));
+    // A scorched, darkened fringe round the edge.
+    const scorch = new THREE.Mesh(raggedDisc(radius * 1.12).translate(0, -0.004, 0),
+      new THREE.MeshBasicMaterial({ color: '#3a2a1a', transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+    group.add(scorch);
+    group.add(bed, glow);
+    // Lumps of coal, some glowing.
+    const coals = [];
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2, r = radius * edge(a) * Math.sqrt(Math.random()) * 0.92;
+      const hot = Math.random() < 0.5;
+      const coal = arrowPart(new THREE.DodecahedronGeometry(0.05 + Math.random() * 0.07), arrowToon(hot ? '#e0501a' : '#2e2420'));
+      coal.position.set(Math.cos(a) * r, 0.03, Math.sin(a) * r);
+      coal.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      coal.scale.y = 0.6;
+      group.add(coal);
+      coals.push(coal);
+    }
+    // Little flames licking up here and there.
+    const flames = Array.from({ length: 16 }, () => {
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: Math.random() < 0.5 ? '#ff7a1f' : '#ffb040', ...additive }));
+      const a = Math.random() * Math.PI * 2, r = radius * Math.sqrt(Math.random()) * 0.9;
+      flame.userData = { x: Math.cos(a) * r, z: Math.sin(a) * r, phase: Math.random() * 10, speed: 1.5 + Math.random() };
+      group.add(flame);
+      return flame;
+    });
+    const light = new THREE.PointLight('#ff6a1a', 4, radius * 4, 2);
+    light.position.y = 0.5;
+    group.add(light);
+    this.scene.add(group);
+    this.sparks({ x: position.x, y: 0.1, z: position.z }, 20, 0.6, { color: '#ffae40', size: 0.12 });
+    const fadeIn = 0.4, fadeOut = 1.2;
+    let sparkTime = 0;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age, dt) => {
+        const on = Math.min(age / fadeIn, 1) * Math.min(Math.max((duration + fadeOut - age) / fadeOut, 0), 1);
+        const dying = age > duration ? Math.min((age - duration) / fadeOut, 1) : 0;
+        const pulse = 0.75 + 0.15 * Math.sin(age * 3.1) + 0.1 * Math.sin(age * 7.3);
+        glow.material.opacity = 0.75 * on * pulse * (1 - dying);
+        bed.material.opacity = on;
+        scorch.material.opacity = 0.6 * on;
+        light.intensity = 4 * on * pulse * (1 - dying);
+        for (const flame of flames) {
+          const { x, z, phase, speed } = flame.userData;
+          const t = ((age * speed + phase) % 1);
+          flame.position.set(x, 0.05 + t * 0.45, z);
+          flame.scale.set(0.25 * (1 - t), 0.4 * (1 - t), 1);
+          flame.material.opacity = on * (1 - dying) * (1 - t);
+        }
+        for (const coal of coals) coal.visible = on > 0.05;
+        // Sparks drifting up now and then.
+        sparkTime += dt;
+        if (sparkTime > 0.15 && dying < 1) {
+          sparkTime = 0;
+          const a = Math.random() * Math.PI * 2, r = radius * Math.sqrt(Math.random());
+          this.sparks({ x: position.x + Math.cos(a) * r, y: 0.1, z: position.z + Math.sin(a) * r }, 2, 0.6, { color: '#ffae40', size: 0.08 });
+        }
+        return age < duration + fadeOut;
+      },
+    });
+  }
+
+  // Leach Bomb: a fat, glistening leech clinging to a character's chest, its
+  // glowing sacs pulsing faster and brighter, and its body swelling, as it
+  // gets ready to burst (over `fuse` seconds). Returns it, for popLeech.
+  attachLeech(model, fuse) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const leech = new THREE.Group();
+    leech.position.set(0.02, 1.3, -0.22);
+    leech.rotation.z = 0.4;
+    leech.scale.setScalar(1.5 * (model.height ?? 1));
+    const body = new THREE.Group();
+    const sacs = [];
+    for (let i = 0; i < 6; i++) {
+      const t = i / 5;
+      const r = 0.045 * Math.sin(Math.PI * (0.2 + 0.8 * t)) + 0.02;
+      const segment = arrowPart(new THREE.SphereGeometry(1, 12, 8).scale(r * 1.1, r, r * 0.8), arrowToon(i % 2 ? '#6a2a52' : '#522044'));
+      segment.position.set((t - 0.5) * 0.24, 0.015 * Math.sin(t * 6), -0.01);
+      body.add(segment);
+      if (i > 0 && i < 5) {
+        const sac = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#a8ff3a', ...additive }));
+        sac.position.set(segment.position.x, segment.position.y + 0.01, -0.06);
+        sac.userData.phase = i * 0.7;
+        body.add(sac);
+        sacs.push(sac);
+      }
+    }
+    leech.add(body);
+    // (It rides on the root of the body, so it moves with them.)
+    model.root.add(leech);
+    this.sparks(model.root.localToWorld(leech.position.clone()), 8, 0.35, { color: '#6a8a20', glow: false, size: 0.05 });
+    leech.userData.alive = true;
+    this.addEffect({
+      group: leech,
+      age: 0,
+      update: (age) => {
+        if (!leech.userData.alive) return false;
+        const t = Math.min(age / fuse, 1);
+        const rate = 3 + 18 * t * t; // (throbbing faster and faster)
+        const throb = 0.5 + 0.5 * Math.sin(age * rate * Math.PI);
+        body.scale.setScalar(1 + 0.45 * t + 0.08 * throb * (0.3 + t));
+        for (const sac of sacs) {
+          sac.scale.setScalar(0.09 + 0.07 * t + 0.06 * throb);
+          sac.material.opacity = 0.35 + 0.65 * throb * (0.4 + 0.6 * t);
+        }
+        return true;
+      },
+    });
+    return leech;
+  }
+
+  // The leech bursting: a sickly green-and-purple blast, and a spray of goo.
+  // Returns where it was, in the world.
+  popLeech(leech, radius) {
+    const at = leech.parent ? leech.parent.localToWorld(leech.position.clone()) : leech.position.clone();
+    leech.userData.alive = false;
+    leech.parent?.remove(leech);
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    group.position.copy(at);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#c8ff5a', ...additive }));
+    const cloud = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: '#7a3aa0', ...additive }));
+    const light = new THREE.PointLight('#a8ff3a', 6, radius * 5, 2);
+    group.add(flash, cloud, light);
+    this.scene.add(group);
+    this.sparks(at, 22, 0.8, { color: '#5a7a18', glow: false, size: 0.12 }); // (goo)
+    this.sparks(at, 16, 0.6, { color: '#b8ff4a', size: 0.12 });
+    this.sparks(at, 10, 0.7, { color: '#a060d0', size: 0.14 });
+    const duration = 0.6;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        const t = age / duration;
+        flash.scale.setScalar(radius * (1.2 + 2 * t));
+        flash.material.opacity = Math.max(1 - 1.5 * t, 0);
+        cloud.scale.setScalar(radius * (0.3 + 0.75 * Math.sqrt(t)));
+        cloud.material.opacity = 0.55 * (1 - t);
+        light.intensity = 6 * (1 - t);
+        return t < 1;
+      },
+    });
+    return { x: at.x, y: at.y, z: at.z };
+  }
+
+  // Power Shove: a wave of violet force rushing from the caster's palm to the
+  // target -- a few rippling rings, one after another, facing the way they
+  // travel -- arriving after `duration` seconds. from, to: { x, y, z }.
+  forcePulse(from, to, duration) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide };
+    const start = new THREE.Vector3(from.x, from.y, from.z), end = new THREE.Vector3(to.x, to.y, to.z);
+    const group = new THREE.Group();
+    const rings = [0, 0.06, 0.12].map((delay) => {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 40), new THREE.MeshBasicMaterial({ color: '#a88cff', ...additive }));
+      ring.userData.delay = delay;
+      group.add(ring);
+      return ring;
+    });
+    this.scene.add(group);
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        for (const ring of rings) {
+          const t = Math.min(Math.max((age - ring.userData.delay) / duration, 0), 1);
+          ring.visible = age >= ring.userData.delay && t < 1;
+          ring.position.lerpVectors(start, end, t);
+          ring.lookAt(end);
+          ring.scale.setScalar(0.18 + 0.3 * t);
+          ring.material.opacity = 0.85 * (1 - 0.4 * t);
+        }
+        return age < duration + 0.13;
+      },
+    });
+  }
+
+  // Where a Power Shove lands: a burst of violet force -- a ring flung out
+  // and a spray of sparks. position: { x, y, z }.
+  forceBurst(position) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide };
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y, position.z);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#b8a2ff', ...additive }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 48), new THREE.MeshBasicMaterial({ color: '#d4c6ff', ...additive }));
+    group.add(flash, ring);
+    this.scene.add(group);
+    this.sparks(position, 16, 0.45, { color: '#c4b2ff', size: 0.1 });
+    const duration = 0.4;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        const t = age / duration;
+        flash.scale.setScalar(0.6 + 1.4 * t);
+        flash.material.opacity = 1 - t;
+        ring.scale.setScalar(0.2 + 1.3 * t);
+        ring.material.opacity = 0.9 * (1 - t);
+        ring.lookAt(this.camera.position);
+        return t < 1;
+      },
+    });
+  }
+
+  // Vine Trap: vines bursting out of the ground round a character, rapidly
+  // growing and twining up round them (holding them fast), then -- after
+  // `duration` seconds -- unwinding and sinking back into the ground.
+  vineTrap(model, duration) {
+    const group = new THREE.Group();
+    model.root.getWorldPosition(group.position);
+    const height = 1.25 * (model.height ?? 1);
+    const vines = [];
+    const vineColors = ['#3f7a2a', '#4f8f33', '#35682a'];
+    for (let i = 0; i < 7; i++) {
+      // Each vine: from the ground a little way out, spiralling in and up
+      // round the body, and ending in a curl.
+      const start = (i / 7) * Math.PI * 2 + Math.random() * 0.4;
+      const turns = 0.9 + Math.random() * 0.5, direction = i % 2 ? 1 : -1;
+      const top = height * (0.55 + Math.random() * 0.45);
+      const points = [];
+      for (let k = 0; k <= 24; k++) {
+        const t = k / 24;
+        const a = start + direction * turns * Math.PI * 2 * t;
+        const r = 0.55 - 0.28 * Math.min(t * 3, 1) + 0.04 * Math.sin(t * 20);
+        points.push(new THREE.Vector3(Math.cos(a) * r, -0.25 + (top + 0.25) * t, Math.sin(a) * r));
+      }
+      const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 64, 0.035 - 0.01 * (i % 3) / 2, 6);
+      // (Thinning towards the tip.)
+      const pos = geometry.attributes.position, centre = new THREE.Vector3();
+      const curve = new THREE.CatmullRomCurve3(points);
+      for (let v = 0; v < pos.count; v++) {
+        const ring = Math.floor(v / 7), t = ring / 64;
+        curve.getPoint(t, centre);
+        const k = 1 - 0.75 * t;
+        pos.setXYZ(v, centre.x + (pos.getX(v) - centre.x) * k, centre.y + (pos.getY(v) - centre.y) * k, centre.z + (pos.getZ(v) - centre.z) * k);
+      }
+      geometry.computeVertexNormals();
+      const vine = arrowPart(geometry, arrowToon(vineColors[i % 3]));
+      // Leaves along it, appearing as it grows past them.
+      const leaves = [];
+      for (let k = 0; k < 5; k++) {
+        const t = 0.2 + k * 0.16 + Math.random() * 0.05;
+        const leaf = arrowPart(new THREE.SphereGeometry(1, 8, 6).scale(0.07, 0.02, 0.04), arrowToon('#5aa03a'));
+        curve.getPoint(t, leaf.position);
+        leaf.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+        leaf.userData.t = t;
+        vine.add(leaf);
+        leaves.push(leaf);
+      }
+      group.add(vine);
+      vines.push({ vine, geometry, leaves, full: geometry.index.count });
+    }
+    this.scene.add(group);
+    // Clods of earth thrown up as they break through.
+    this.sparks({ x: group.position.x, y: group.position.y + 0.05, z: group.position.z }, 16, 0.5, { color: '#6b4a2a', glow: false, size: 0.08 });
+    const grow = 0.35, retreat = 0.5;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        // How far along each vine is showing: growing, holding, then sinking back.
+        let shown;
+        if (age < grow) shown = 1 - (1 - age / grow) ** 3;
+        else if (age < duration) shown = 1;
+        else shown = 1 - Math.min((age - duration) / retreat, 1);
+        vines.forEach(({ vine, geometry, leaves, full }, i) => {
+          const rings = Math.floor(shown * 64);
+          geometry.setDrawRange(0, rings * 6 * 6);
+          for (const leaf of leaves) leaf.visible = leaf.userData.t < shown - 0.02;
+          // (Unwinding a little as they let go.)
+          vine.rotation.y = age > duration ? (i % 2 ? 1 : -1) * (age - duration) * 1.2 : 0;
+          vine.position.y = age > duration ? -0.25 * (age - duration) / retreat : 0;
+        });
+        return age < duration + retreat;
+      },
+    });
+  }
+
+  // A fireball bursting: a flash, a ball of flame swelling and fading, and a
+  // spray of burning sparks. position: { x, y, z }; radius: how far it spreads.
+  fireExplosion(position, radius) {
+    const additive = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false };
+    const group = new THREE.Group();
+    group.position.set(position.x, position.y, position.z);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ff9a40', ...additive }));
+    const blaze = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: '#d8400c', ...additive }));
+    const light = new THREE.PointLight('#ff8a2a', 8, radius * 5, 2);
+    group.add(flash, blaze, light);
+    this.scene.add(group);
+    this.sparks(position, 24, 0.7, { color: '#ffae40', size: 0.16 });
+    this.sparks(position, 12, 0.5, { color: '#fff0c0', size: 0.1 });
+    const duration = 0.55;
+    this.addEffect({
+      group,
+      age: 0,
+      update: (age) => {
+        const t = age / duration;
+        flash.scale.setScalar(radius * (1.5 + 2 * t));
+        flash.material.opacity = Math.max(1 - t * 1.6, 0);
+        blaze.scale.setScalar(radius * (0.3 + 0.8 * Math.sqrt(t)));
+        blaze.material.opacity = 0.7 * (1 - t);
+        light.intensity = 8 * (1 - t);
+        return t < 1;
+      },
+    });
   }
 
   // An arrow (or bolt) in flight. Returns it, to be moved with moveArrow.
@@ -513,6 +1072,7 @@ export class GameRenderer {
   // (or, with stick: false, it's simply gone -- e.g. when it hits someone).
   endArrow(arrow, { stick = true } = {}) {
     if (!stick) {
+      arrow.userData.alive = false; // (a fireball's own effect clears it up)
       this.scene.remove(arrow);
       return;
     }

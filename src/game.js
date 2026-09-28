@@ -1,14 +1,14 @@
 // Main game script: game state, rules, input handling and the game loop.
 // Uses the 3D renderer (renderer.js) to draw each frame.
-import { GameRenderer } from './renderer.js';
+import { GameRenderer, WALL_CRUMBLE_TIME } from './renderer.js';
 import { createAppearance } from './characterAppearance.js';
 import {
-  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam, playWeaponHit,
+  playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam, playWeaponHit, playFireball, playExplosion, playVines, playShove, playEarth, playSquelch, playThrob, playIgnite,
 } from './sound.js';
 import {
   SMITE_IMPACT, INVOKE_IMPACT, SCRATCH_IMPACT, BITE_IMPACT, HEAL_IMPACT, BEAM_IMPACT,
   STAB_IMPACT, SLASH_IMPACT, BASH_IMPACT, AXE_IMPACT, HAMMER_IMPACT,
-  SHORTBOW_RELEASE, LONGBOW_RELEASE, CROSSBOW_RELEASE, CROSSBOW_RELOAD,
+  SHORTBOW_RELEASE, LONGBOW_RELEASE, CROSSBOW_RELEASE, CROSSBOW_RELOAD, FIREBALL_RELEASE, VINES_RISE, SHOVE_RELEASE, LEECH_PLANT,
 } from './characterAnimation.js';
 import { COMMAND_CALL } from './voice.js';
 import { createZombie } from './enemies.js';
@@ -86,6 +86,13 @@ const CLASSES = {
   archer: {
     bows: ['shortbow', 'longbow', 'crossbow'],
   },
+  // Six spells of fire, nature and arcane power, of which the player picks
+  // four.
+  mage: {
+    spells: ['fireball', 'vineTrap', 'powerShove', 'wallOfEarth', 'leachBomb', 'burningGround'],
+    slots: 4,
+    magic: 'fire', // (the colour of the glow in their hands)
+  },
 };
 
 // An archer's weapons: their bow, and a dagger.
@@ -118,8 +125,11 @@ function chooseWeapons(characterClass, picks) {
 // their spells (a cleric), weapons (a fighter) or bow (an archer). Change
 // these to try another.
 const PLAYER_CHOICES = {
-  characterClass: 'archer',   // 'cleric', 'fighter' or 'archer'
-  spells: ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight'],
+  characterClass: 'mage',     // 'cleric', 'fighter', 'archer' or 'mage'
+  spells: {
+    cleric: ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight'],
+    mage: ['fireball', 'vineTrap', 'leachBomb', 'burningGround'],
+  },
   weapons: ['halberd'],       // (or ['sword', 'shield'])
   bow: 'shortbow',            // 'shortbow', 'longbow' or 'crossbow'
 };
@@ -253,7 +263,27 @@ function toggleFollowing() {
 //   Cleansing Light: straight ahead
 // Aiming (a bow in hand): the camera moves over the shoulder and a crosshair shows.
 function isAiming() {
-  return Boolean(MOVES[playerSlots()[player.selectedSpell]]?.shot);
+  const name = playerSlots()[player.selectedSpell];
+  const move = MOVES[name] ?? SPELLS[name];
+  return Boolean(move?.shot || move?.aimed);
+}
+
+// The enemy under the crosshair -- or the nearest to it on screen, if it's
+// close (within AIM_ASSIST) -- within range.
+const AIM_ASSIST = 0.12; // radians either side of the crosshair
+
+function aimedEnemy(range) {
+  const { origin, direction } = renderer.aimRay();
+  let best = null, bestAngle = AIM_ASSIST;
+  for (const enemy of livingEnemies()) {
+    if (distanceBetween(player.position, enemy.position) > range + 1) continue;
+    if (wallBetween(player.position, enemy.position)) continue; // (hidden behind a wall)
+    const dx = enemy.position.x - origin.x, dy = enemy.position.y + 1 - origin.y, dz = enemy.position.z - origin.z;
+    const d = Math.hypot(dx, dy, dz);
+    const angle = Math.acos(Math.min((dx * direction.x + dy * direction.y + dz * direction.z) / d, 1));
+    if (angle < bestAngle) { best = enemy; bestAngle = angle; }
+  }
+  return best;
 }
 
 function selectSpell(slot) {
@@ -354,19 +384,23 @@ function shoot(shooter, move) {
   const shot = move.shot;
   const ray = renderer.aimRay();
   const target = aimPoint(ray, shooter, shot.range);
+  // (From in front of the chest: the bow, or the hands.)
+  const ahead = shot.fireball ? 0.75 : 0.45;
   const from = {
-    x: shooter.position.x - Math.sin(shooter.yaw) * 0.45,
-    y: shooter.position.y + 1.45,
-    z: shooter.position.z - Math.cos(shooter.yaw) * 0.45,
+    x: shooter.position.x - Math.sin(shooter.yaw) * ahead,
+    y: shooter.position.y + (shot.fireball ? 1.3 : 1.45),
+    z: shooter.position.z - Math.cos(shooter.yaw) * ahead,
   };
   let dx = target.x - from.x, dy = target.y - from.y, dz = target.z - from.z;
   const distance = Math.hypot(dx, dy, dz);
   [dx, dy, dz] = jitter([dx / distance, dy / distance, dz / distance], shot.jitter);
   // (Aimed a touch high, so that it drops back onto the line by the target.)
   const time = distance / shot.speed;
-  const velocity = { x: dx * shot.speed, y: dy * shot.speed + 0.5 * ARROW_GRAVITY * time, z: dz * shot.speed };
-  arrows.push({ from, position: { ...from }, velocity, travelled: 0, shot, shooter, view: renderer.addArrow(shot.arrow) });
-  playSwing({ volume: 0.12 });
+  const gravity = shot.gravity ?? ARROW_GRAVITY;
+  const velocity = { x: dx * shot.speed, y: dy * shot.speed + 0.5 * gravity * time, z: dz * shot.speed };
+  const view = shot.fireball ? renderer.addFireball() : renderer.addArrow(shot.arrow);
+  arrows.push({ from, position: { ...from }, velocity, travelled: 0, shot, shooter, view });
+  if (!shot.fireball) playSwing({ volume: 0.12 });
   if (move.reload) {
     player.loaded = false;
     renderer.setPlayerLoaded(false);
@@ -415,8 +449,14 @@ function updateArrows(dt) {
     const arrow = arrows[i];
     const { position: p, velocity: v, shot } = arrow;
     const start = { ...p };
-    // (Beyond its range, it quickly drops away.)
-    v.y -= ARROW_GRAVITY * (arrow.travelled > shot.range ? 6 : 1) * dt;
+    // (Beyond its range, it quickly drops away -- or a fireball fizzles out.)
+    if (shot.fireball && arrow.travelled > shot.range) {
+      renderer.endArrow(arrow.view, { stick: false });
+      renderer.sparks(p, 8, 0.4, { color: '#ff8a2a', size: 0.12 });
+      arrows.splice(i, 1);
+      continue;
+    }
+    v.y -= (shot.gravity ?? ARROW_GRAVITY) * (arrow.travelled > shot.range ? 6 : 1) * dt;
     p.x += v.x * dt; p.y += v.y * dt; p.z += v.z * dt;
     arrow.travelled += Math.hypot(p.x - start.x, p.y - start.y, p.z - start.z);
     renderer.moveArrow(arrow.view, p, v);
@@ -429,10 +469,25 @@ function updateArrows(dt) {
       }
       return false;
     });
-    if (hit) {
+    if (inWall(p)) {
+      // (Stopped by a wall: an arrow sticks in it; a fireball bursts on it.)
+      if (shot.fireball) explode(p, shot.blast, arrow.shooter);
+      renderer.endArrow(arrow.view, { stick: !shot.fireball });
+      arrows.splice(i, 1);
+    } else if (hit && shot.fireball) {
+      hurt(hit, shot.damage, arrow.shooter);
+      explode(p, shot.blast, arrow.shooter, hit);
+      renderer.endArrow(arrow.view, { stick: false });
+      arrows.splice(i, 1);
+    } else if (hit) {
       hurt(hit, shot.damage, arrow.shooter);
       renderer.bloodSpatter({ x: p.x, y: p.y, z: p.z });
       playWeaponHit('blade', { volume: 0.25 });
+      renderer.endArrow(arrow.view, { stick: false });
+      arrows.splice(i, 1);
+    } else if (shot.fireball && p.y <= FLOOR.y) {
+      // (A fireball bursts on the ground, too.)
+      explode({ ...p, y: FLOOR.y + 0.2 }, shot.blast, arrow.shooter);
       renderer.endArrow(arrow.view, { stick: false });
       arrows.splice(i, 1);
     } else if (p.y <= FLOOR.y || !isAboveFloor(p.x, p.z) && p.y < FLOOR.y - 5) {
@@ -442,6 +497,18 @@ function updateArrows(dt) {
       renderer.endArrow(arrow.view);
       arrows.splice(i, 1);
     }
+  }
+}
+
+// A fireball bursting: every enemy in the blast (other than one it struck,
+// who's already been hurt) is burned too.
+function explode(at, blast, shooter, struck = null) {
+  renderer.fireExplosion(at, blast.radius * 0.6);
+  playExplosion();
+  for (const enemy of livingEnemies()) {
+    if (enemy === struck) continue;
+    const d = Math.hypot(enemy.position.x - at.x, enemy.position.z - at.z);
+    if (d <= blast.radius + enemy.radius && Math.abs(at.y - (enemy.position.y + 1)) < 1.6) hurt(enemy, blast.damage, shooter);
   }
 }
 
@@ -486,6 +553,7 @@ function strike(attacker, move) {
   const foes = partyMembers().includes(attacker) ? livingEnemies() : livingParty();
   const hits = [];
   for (const foe of foes) {
+    if (wallBetween(attacker.position, foe.position)) continue; // (a wall in the way)
     const dx = foe.position.x - attacker.position.x, dz = foe.position.z - attacker.position.z;
     const d = Math.hypot(dx, dz);
     const reach = move.range + (foe.radius ?? PLAYER_RADIUS);
@@ -534,8 +602,34 @@ function castPlayerSpell(name) {
   if (!spell || player.casting || player.stunTime > 0 || (player.cooldowns[name] ?? 0) > 0) return;
   let target;
   if (spell.heal || spell.shield || spell.empower) target = facedCharacter(livingParty(), spell.range) ?? player;
-  else if (spell.radius) target = facedCharacter(livingEnemies(), spell.range, 0.75) ?? { position: pointAhead(player, 6) };
-  else if (spell.beam) target = null;
+  else if (spell.radius) {
+    target = facedCharacter(livingEnemies(), spell.range, 0.75);
+    if (!target || wallBetween(player.position, target.position)) target = { position: pointAhead(player, 6) };
+  }
+  else if (spell.beam || spell.shot) target = null;
+  else if (spell.fire) {
+    // (On the ground under the crosshair.)
+    const at = aimPoint(renderer.aimRay(), player, spell.range);
+    target = { position: { x: at.x, y: FLOOR.y, z: at.z } };
+  } else if (spell.leech) {
+    // (A touch: only cast with an enemy right in front.)
+    target = facedCharacter(livingEnemies(), spell.range, 0.5);
+    if (!target || wallBetween(player.position, target.position)) return;
+  } else if (spell.wall) {
+    // (Raised on the ground under the crosshair -- not too close to the caster.)
+    const at = aimPoint(renderer.aimRay(), player, spell.range);
+    const d = Math.max(Math.hypot(at.x - player.position.x, at.z - player.position.z), 0.01);
+    const away = Math.max(d, 2.2);
+    target = { position: {
+      x: player.position.x + ((at.x - player.position.x) / d) * away,
+      y: FLOOR.y,
+      z: player.position.z + ((at.z - player.position.z) / d) * away,
+    } };
+  } else if (spell.aimed) {
+    // (Only cast with an enemy under the crosshair.)
+    target = aimedEnemy(spell.range);
+    if (!target) return;
+  }
   else target = facedCharacter(livingEnemies(), spell.range * 1.2);
   player.casting = { spell, target, time: 0, landed: false };
   player.cooldowns[name] = spell.cooldown;
@@ -763,10 +857,20 @@ function updateNpc(npc, dt) {
   const pos = npc.position;
   const start = { x: pos.x, z: pos.z };
   const knocked = updateKnockback(npc, dt);
-  const { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 || knocked ? {} : chooseMove(npc, dt);
+  let { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 || knocked ? {} : chooseMove(npc, dt);
+  if (goal && walls.length) {
+    const route = routeAroundWalls(npc, goal, dt);
+    if (!route.goal) face = route.face ?? face;
+    goal = route.goal;
+  } else if (!walls.length) {
+    npc.detour = null;
+  }
 
   let faceX = 0, faceZ = 0;
-  if (goal) {
+  if (goal && npc.rootTime > 0) {
+    // (Held by vines: turning to face where they'd go, but not going.)
+    faceX = (face ?? goal).x - pos.x; faceZ = (face ?? goal).z - pos.z;
+  } else if (goal) {
     const dx = goal.x - pos.x, dz = goal.z - pos.z;
     const distance = Math.hypot(dx, dz);
     const step = Math.min(speed * dt, distance);
@@ -780,6 +884,7 @@ function updateNpc(npc, dt) {
   }
   keepOnFloor(pos);
   if (!npc.dead) pushAwayFromPlayer(npc);
+  if (!npc.dead) collideWithWalls(pos, npc.radius);
   // How fast they actually moved (less if the edge of the floor or the player
   // was in the way), for the walk and run animations.
   const moved = Math.hypot(pos.x - start.x, pos.z - start.z) / Math.max(dt, 1e-6);
@@ -867,6 +972,48 @@ const SPELLS = {
     label: 'Sovereign Aid', gesture: 'aidTouch', selfGesture: 'aidSelf', range: 1.6, cooldown: 18, duration: 1.5, impact: HEAL_IMPACT,
     empower: 14,       // how long it lasts (seconds)
   },
+  // Fireball (a mage's spell): a ball of fire thrown from both hands at the
+  // crosshair (see shoot), bursting on whatever it hits -- the enemy it
+  // strikes takes the full blow, and any others near enough are caught in the blast.
+  fireball: {
+    label: 'Fireball', gesture: 'fireball', cooldown: 2.5, duration: 0.85, impact: FIREBALL_RELEASE,
+    shot: { range: 22, damage: 18, jitter: 0.006, speed: 22, gravity: 0, fireball: true, blast: { radius: 1.8, damage: 9 } },
+  },
+  // Vine Trap (a mage's spell): vines burst from the ground round the enemy
+  // under the crosshair, and hold them fast -- they can't move (though they
+  // can still lash out at anyone in reach) -- until they let go and sink back.
+  vineTrap: {
+    label: 'Vine Trap', gesture: 'vineTrap', aimed: true, range: 16, cooldown: 9, duration: 1.0, impact: VINES_RISE,
+    root: 3.5,      // how long the target is held (seconds)
+  },
+  // Power Shove (a mage's spell): a wave of force pushed out from the palm at
+  // the enemy under the crosshair, rushing to them and throwing them back.
+  powerShove: {
+    label: 'Power Shove', gesture: 'shove', aimed: true, range: 14, cooldown: 6, duration: 0.7, impact: SHOVE_RELEASE,
+    shove: { distance: 5, speed: 30 }, // (how far it throws them, and how fast the wave travels -- it does no harm)
+  },
+  // Wall of Earth (a mage's spell): a wall of packed dirt raised out of the
+  // ground where the crosshair points, across the way the caster is facing.
+  // Nothing can pass through it -- people, arrows or fireballs -- until it
+  // crumbles back into the ground.
+  wallOfEarth: {
+    label: 'Wall of Earth', gesture: 'raiseEarth', aimed: true, range: 12, cooldown: 14, duration: 1.0, impact: VINES_RISE,
+    wall: { width: 3.5, thickness: 0.6, height: 3.0, lasts: 10 }, // (a unit taller than an average person, who's about 2)
+  },
+  // Leach Bomb (a mage's spell): a touch spell -- the caster slaps an
+  // exploding leech onto the enemy in front of them, then has a few seconds
+  // to get clear before it bursts, hurting everyone near (friend or foe).
+  leachBomb: {
+    label: 'Leach Bomb', gesture: 'plantLeech', range: 1.6, cooldown: 12, duration: 0.75, impact: LEECH_PLANT,
+    leech: { fuse: 3.2, damage: 30, blast: { radius: 2.6, damage: 14 } }, // (to the one it's on, and to everyone else nearby)
+  },
+  // Burning Ground (a mage's spell): the ground where the crosshair points
+  // turns to burning coals for a while, hurting anyone -- friend or foe --
+  // standing, walking or running on it.
+  burningGround: {
+    label: 'Burning Ground', gesture: 'igniteGround', range: 14, cooldown: 16, duration: 1.0, impact: VINES_RISE,
+    fire: { radius: 2.2, lasts: 8, damagePerSecond: 7 },
+  },
   // Cleansing Light (a cleric's spell -- the player's, not Evalyn's): a beam
   // of holy light straight out from the caster's hand for a moment. It burns
   // the undead caught in it, and stuns everyone else (friend or foe).
@@ -927,7 +1074,10 @@ function castSpells(npc, dt) {
 
 // A spell (or attack) taking effect, partway through being cast.
 function landSpell(caster, { spell, target }) {
-  const within = (reach) => target && !target.dead && (target === caster || distanceBetween(caster.position, target.position) <= reach);
+  // (Nothing reaches through a wall -- a touch, a blow, or a spell at someone
+  // on the other side.)
+  const within = (reach) => target && !target.dead && (target === caster || distanceBetween(caster.position, target.position) <= reach)
+    && (target === caster || !wallBetween(caster.position, target.position));
   if (spell.heal || spell.shield || spell.empower) {
     // A touch spell lands if they're still within touch (or it's the caster).
     if (!within(spell.range * 1.5)) return;
@@ -954,8 +1104,22 @@ function landSpell(caster, { spell, target }) {
     startBeam(spell, caster);
   } else if (spell.strike) {
     strike(caster, spell);
+  } else if (spell.fire) {
+    igniteGround(caster, target.position, spell.fire);
+  } else if (spell.leech) {
+    if (!within(spell.range * 1.5)) return;
+    plantLeech(caster, target, spell.leech);
+  } else if (spell.wall) {
+    raiseWall(caster, target.position, spell.wall);
+  } else if (spell.root) {
+    if (!target || target.dead || wallBetween(caster.position, target.position)) return;
+    root(target, spell.root);
+  } else if (spell.shove) {
+    if (!target || target.dead) return;
+    shove(caster, target, spell.shove);
   } else if (spell.shot) {
     shoot(caster, spell);
+    if (spell.shot.fireball) playFireball();
   } else if (within(spell.range * 1.3)) {
     // (A close-range spell only lands if the target is still there and within reach.)
     hurt(target, spell.damage, caster);
@@ -985,6 +1149,7 @@ function attack(npc, dt) {
   const name = npc.attacks[Math.floor(Math.random() * npc.attacks.length)];
   const move = ATTACKS[name];
   if (distanceBetween(npc.position, target.position) > move.range) return;
+  if (wallBetween(npc.position, target.position)) return; // (no reaching through a wall)
   npc.casting = { spell: move, target, time: 0, landed: false };
   npc.attackTimer = move.duration + npc.attackPause[0] + Math.random() * (npc.attackPause[1] - npc.attackPause[0]);
   renderer.npcGesture(npc.view, move.gesture);
@@ -1040,6 +1205,7 @@ function goToHeal(npc) {
 // and (for an area spell) with nobody in the party in the way.
 function canCast(npc, spell, target) {
   if (target === npc) return true; // (on oneself)
+  if (wallBetween(npc.position, target.position)) return false; // (can't see them through a wall)
   const d = distanceBetween(npc.position, target.position);
   if (d > spell.range || d < (spell.minRange ?? 0)) return false;
   if (!spell.radius) return true;
@@ -1054,8 +1220,12 @@ const beams = [];
 function startBeam(spell, caster) {
   const dir = { x: -Math.sin(caster.yaw), z: -Math.cos(caster.yaw) };
   const from = { x: caster.position.x, z: caster.position.z };
-  beams.push({ spell, caster, from, dir, time: 0, caught: new Set() });
-  renderer.lightBeam(caster.view, spell.range, spell.beam);
+  // (It shines only as far as the first wall in its way.)
+  const end = { x: from.x + dir.x * spell.range, z: from.z + dir.z * spell.range };
+  const blocked = wallBetween(from, end);
+  const length = blocked ? spell.range * blocked.t : spell.range;
+  beams.push({ spell, caster, from, dir, length, time: 0, caught: new Set() });
+  renderer.lightBeam(caster.view, Math.max(length - 0.3, 0.3), spell.beam);
 }
 
 function updateBeams(dt) {
@@ -1068,7 +1238,7 @@ function updateBeams(dt) {
       const dx = character.position.x - beam.from.x, dz = character.position.z - beam.from.z;
       const along = dx * beam.dir.x + dz * beam.dir.z;
       const across = Math.abs(dx * beam.dir.z - dz * beam.dir.x);
-      if (along < 0 || along > beam.spell.range || across > beam.spell.width + (character.radius ?? PLAYER_RADIUS)) continue;
+      if (along < 0 || along > beam.length || across > beam.spell.width + (character.radius ?? PLAYER_RADIUS)) continue;
       beam.caught.add(character);
       if (character.undead) {
         hurt(character, beam.spell.damage, beam.caster);
@@ -1081,6 +1251,251 @@ function updateBeams(dt) {
   for (let i = beams.length - 1; i >= 0; i--) if (beams[i].time >= beams[i].spell.beam) beams.splice(i, 1);
 }
 
+// Patches of burning ground: { caster, x, z, radius, time, lasts, damagePerSecond }.
+const fires = [];
+
+function igniteGround(caster, at, spec) {
+  fires.push({ caster, x: at.x, z: at.z, radius: spec.radius, time: 0, lasts: spec.lasts, damagePerSecond: spec.damagePerSecond });
+  renderer.burningGround({ x: at.x, z: at.z }, spec.radius, spec.lasts);
+  playIgnite({ seconds: spec.lasts });
+}
+
+// Anyone on the ground (not in the air, jumping over it) in a fire is burned,
+// a little at a time.
+const BURN_TICK = 0.5; // (seconds between burns)
+
+function updateFires(dt) {
+  for (let i = fires.length - 1; i >= 0; i--) {
+    const fire = fires[i];
+    const before = fire.time;
+    fire.time += dt;
+    if (fire.time >= fire.lasts) { fires.splice(i, 1); continue; }
+    if (Math.floor(fire.time / BURN_TICK) === Math.floor(before / BURN_TICK)) continue;
+    for (const character of [player, ...NPCS]) {
+      if (character.dead || character.position.y > FLOOR.y + 0.3) continue;
+      const d = Math.hypot(character.position.x - fire.x, character.position.z - fire.z);
+      if (d <= fire.radius + (character.radius ?? PLAYER_RADIUS) * 0.5) {
+        hurt(character, fire.damagePerSecond * BURN_TICK, fire.caster);
+        renderer.sparks({ x: character.position.x, y: 0.3, z: character.position.z }, 5, 0.4, { color: '#ff8a2a', size: 0.1 });
+      }
+    }
+  }
+}
+
+// Leeches planted (Leach Bomb): { caster, target, spec, time, view, nextThrob }.
+const leeches = [];
+
+function plantLeech(caster, target, spec) {
+  leeches.push({ caster, target, spec, time: 0, view: renderer.attachLeech(target.view, spec.fuse), nextThrob: 0.4 });
+  playSquelch();
+}
+
+function updateLeeches(dt) {
+  for (let i = leeches.length - 1; i >= 0; i--) {
+    const leech = leeches[i];
+    leech.time += dt;
+    const t = leech.time / leech.spec.fuse;
+    // Throbbing, faster as it swells.
+    if (leech.time >= leech.nextThrob && t < 1) {
+      playThrob(t);
+      leech.nextThrob = leech.time + Math.max(0.6 * (1 - t) ** 1.5, 0.08);
+    }
+    if (t < 1) continue;
+    // It bursts: the full blast on whoever it's on, and a lesser one on anyone
+    // else near (including the caster, if they didn't get clear).
+    leeches.splice(i, 1);
+    const at = renderer.popLeech(leech.view, leech.spec.blast.radius * 0.5);
+    playExplosion();
+    playSquelch({ volume: 0.5 });
+    for (const character of [player, ...NPCS]) {
+      if (character.dead) continue;
+      if (character === leech.target) { hurt(character, leech.spec.damage, leech.caster); continue; }
+      const d = Math.hypot(character.position.x - at.x, character.position.z - at.z);
+      if (d <= leech.spec.blast.radius && !wallBetween(at, character.position)) hurt(character, leech.spec.blast.damage, leech.caster);
+    }
+  }
+}
+
+// Walls of Earth standing: { x, z, angle, ux, uz (along it), halfWidth,
+// halfThickness, height, time, lasts }. Solid while they stand.
+const walls = [];
+
+function raiseWall(caster, at, spec) {
+  // Across the way from the caster to it (so it faces them).
+  const dx = at.x - caster.position.x, dz = at.z - caster.position.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const ux = -dz / d, uz = dx / d; // (along the wall)
+  const angle = Math.atan2(-uz, ux);
+  walls.push({ x: at.x, z: at.z, angle, ux, uz, halfWidth: spec.width / 2, halfThickness: spec.thickness / 2, height: spec.height, time: 0, lasts: spec.lasts });
+  renderer.earthWall({ x: at.x, z: at.z }, angle, spec, spec.lasts);
+  playEarth();
+  setTimeout(() => playEarth({ rise: false }), spec.lasts * 1000); // (the sound of it starting to crumble)
+}
+
+function updateWalls(dt) {
+  for (let i = walls.length - 1; i >= 0; i--) {
+    walls[i].time += dt;
+    // (It crumbles from the top down; until the lower part's gone too, it still blocks the way.)
+    if (walls[i].time >= walls[i].lasts + WALL_CRUMBLE_TIME * 0.7) walls.splice(i, 1);
+  }
+}
+
+// Where a point is relative to a wall: along it, through it, and whether
+// it's inside it (grown by `margin` all round).
+function wallLocal(wall, x, z, margin = 0) {
+  const px = x - wall.x, pz = z - wall.z;
+  const along = px * wall.ux + pz * wall.uz;
+  const through = px * -wall.uz + pz * wall.ux;
+  const inside = Math.abs(along) < wall.halfWidth + margin && Math.abs(through) < wall.halfThickness + margin;
+  return { along, through, inside };
+}
+
+// Keeps a character out of any wall: pushed back out the nearest side.
+function collideWithWalls(position, radius) {
+  for (const wall of walls) {
+    if (position.y > wall.height) continue; // (they've jumped clear over it... not likely, but)
+    const { along, through, inside } = wallLocal(wall, position.x, position.z, radius);
+    if (!inside) continue;
+    const outAlong = wall.halfWidth + radius - Math.abs(along);
+    const outThrough = wall.halfThickness + radius - Math.abs(through);
+    if (outThrough < outAlong) {
+      const s = Math.sign(through) || 1;
+      position.x += -wall.uz * s * outThrough;
+      position.z += wall.ux * s * outThrough;
+    } else {
+      const s = Math.sign(along) || 1;
+      position.x += wall.ux * s * outAlong;
+      position.z += wall.uz * s * outAlong;
+    }
+  }
+}
+
+// Whether a point (e.g. an arrow's tip) is inside a wall.
+function inWall(p) {
+  return walls.some((wall) => p.y < wall.height && wallLocal(wall, p.x, p.z).inside);
+}
+
+// The first wall in the way of a straight line from a to b (on the ground,
+// optionally grown by `margin`), and how far along the line (0-1) it's met --
+// or null if the way is clear.
+function wallBetween(a, b, margin = 0) {
+  let first = null, firstT = Infinity;
+  for (const wall of walls) {
+    const la = wallLocal(wall, a.x, a.z), lb = wallLocal(wall, b.x, b.z);
+    // (Clipping the line to the wall's box, one pair of sides at a time.)
+    let t0 = 0, t1 = 1;
+    for (const [p0, p1, half] of [[la.along, lb.along, wall.halfWidth + margin], [la.through, lb.through, wall.halfThickness + margin]]) {
+      const d = p1 - p0;
+      if (Math.abs(d) < 1e-9) {
+        if (Math.abs(p0) > half) { t0 = 1; t1 = 0; }
+        continue;
+      }
+      let ta = (-half - p0) / d, tb = (half - p0) / d;
+      if (ta > tb) [ta, tb] = [tb, ta];
+      t0 = Math.max(t0, ta);
+      t1 = Math.min(t1, tb);
+    }
+    if (t0 <= t1 && t0 < firstT) { first = wall; firstT = t0; }
+  }
+  return first && { wall: first, t: firstT };
+}
+
+// A way round a wall to get from a character to their goal: to the nearer
+// end of the wall (on their side of it), then across past the end to the
+// far side -- a couple of waypoints.
+function detourAround(wall, from, to, radius) {
+  const here = wallLocal(wall, from.x, from.z), there = wallLocal(wall, to.x, to.z);
+  // (The end closer to the straight line between them.)
+  const end = Math.sign(here.along + there.along) || (Math.random() < 0.5 ? 1 : -1);
+  const side = Math.sign(here.through) || 1;
+  const outAlong = wall.halfWidth + radius + 0.45, outThrough = wall.halfThickness + radius + 0.35;
+  const point = (along, through) => ({
+    x: wall.x + wall.ux * along - wall.uz * through,
+    z: wall.z + wall.uz * along + wall.ux * through,
+  });
+  return [point(end * outAlong, side * outThrough), point(end * outAlong, -side * outThrough)];
+}
+
+// Heading somewhere with a wall in the way: an enemy walks up to it, stops,
+// looks about in confusion for a moment, then goes round it; a party member
+// just goes round. Returns where to head for now.
+const CONFUSED_TIME = 1.3; // seconds an enemy stands puzzled at a wall
+
+function routeAroundWalls(npc, goal, dt) {
+  // Following a way round already?
+  if (npc.detour?.length) {
+    if (!walls.includes(npc.detour.wall)) npc.detour = null; // (the wall's gone)
+    else {
+      if (distanceBetween(npc.position, npc.detour[0]) < 0.35) npc.detour.shift();
+      if (npc.detour.length) return { goal: npc.detour[0] };
+      npc.detour = null;
+    }
+  }
+  const blocked = wallBetween(npc.position, goal, npc.radius * 0.8);
+  if (!blocked) {
+    npc.puzzled = 0;
+    return { goal };
+  }
+  // Enemies only realise once they've walked right up to it.
+  const touching = wallLocal(blocked.wall, npc.position.x, npc.position.z, npc.radius + 0.2).inside;
+  if (npc.role === 'enemy' && !touching) return { goal };
+  if (npc.role === 'enemy') {
+    if (!npc.puzzled) renderer.npcGesture(npc.view, 'lookAround');
+    npc.puzzled = (npc.puzzled ?? 0) + dt;
+    if (npc.puzzled < CONFUSED_TIME) return { goal: null, face: goal };
+  }
+  npc.puzzled = 0;
+  npc.detour = detourAround(blocked.wall, npc.position, goal, npc.radius);
+  npc.detour.wall = blocked.wall;
+  return { goal: npc.detour[0] };
+}
+
+// Power Shove: the wave of force sets off from the caster's palm and, when
+// it reaches the target, throws them straight back, away from the caster.
+const shoves = []; // { caster, target, shove, time, arrive }
+
+function shove(caster, target, spec) {
+  const from = renderer.palmPosition(caster.view);
+  const to = { x: target.position.x, y: target.position.y + 1.1, z: target.position.z };
+  const arrive = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) / spec.speed;
+  renderer.forcePulse(from, to, arrive);
+  playShove();
+  shoves.push({ caster, target, spec, time: 0, arrive });
+}
+
+function updateShoves(dt) {
+  for (let i = shoves.length - 1; i >= 0; i--) {
+    const s = shoves[i];
+    s.time += dt;
+    if (s.time < s.arrive) continue;
+    shoves.splice(i, 1);
+    if (s.target.dead) continue;
+    const blocked = wallBetween(s.caster.position, s.target.position);
+    if (blocked) {
+      // (A wall raised in its way takes the blow instead.)
+      const at = { x: s.caster.position.x + (s.target.position.x - s.caster.position.x) * blocked.t, y: 1.1, z: s.caster.position.z + (s.target.position.z - s.caster.position.z) * blocked.t };
+      renderer.forceBurst(at);
+      playShove({ hit: true });
+      continue;
+    }
+    const dx = s.target.position.x - s.caster.position.x, dz = s.target.position.z - s.caster.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    knockBack(s.target, dx / d, dz / d, s.spec.distance);
+    renderer.forceBurst({ x: s.target.position.x, y: s.target.position.y + 1.1, z: s.target.position.z });
+    playShove({ hit: true });
+  }
+}
+
+// Held by vines (see Vine Trap): unable to move for a while (though still
+// able to attack or cast).
+function root(character, seconds) {
+  character.rootTime = seconds;
+  character.knock = null;
+  renderer.vineTrap(character.view, seconds);
+  playVines();
+  setTimeout(() => playVines({ grow: false }), seconds * 1000);
+}
+
 // Stunned: dazed, unable to move, attack or cast for a while.
 function stun(character, seconds) {
   character.stunTime = Math.max(character.stunTime ?? 0, seconds);
@@ -1090,6 +1505,7 @@ function stun(character, seconds) {
 function updateStuns(dt) {
   for (const character of [player, ...NPCS]) {
     character.stunTime = character.dead ? 0 : Math.max((character.stunTime ?? 0) - dt, 0);
+    character.rootTime = character.dead ? 0 : Math.max((character.rootTime ?? 0) - dt, 0);
     renderer.setDazed(character.view, character.stunTime > 0);
   }
 }
@@ -1429,7 +1845,7 @@ function isFallingNearFloor() {
 
 function updatePlayer(dt) {
   const pos = player.position;
-  const stunned = player.stunTime > 0 || updateKnockback(player, dt); // (a stunned or thrown player can't move or jump)
+  const stunned = player.stunTime > 0 || updateKnockback(player, dt) || player.rootTime > 0; // (a stunned, thrown or held player can't move or jump)
 
   // Horizontal movement, relative to the direction the camera faces.
   const forward = stunned ? 0 : Number(isActionHeld('forward')) - Number(isActionHeld('back'));
@@ -1465,6 +1881,7 @@ function updatePlayer(dt) {
     pos.x += dirX * speed * dt;
     pos.z += dirZ * speed * dt;
     collideWithNpcs(pos);
+    collideWithWalls(pos, PLAYER_RADIUS);
     player.moveSpeed = speed;
     player.movingBackward = movingBackward;
   } else {
@@ -1515,10 +1932,13 @@ function updatePlayer(dt) {
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
 player.characterClass = PLAYER_CHOICES.characterClass;
-if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells);
+if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells[player.characterClass] ?? []);
 if (CLASSES[player.characterClass].weapons) player.weapons = chooseWeapons(player.characterClass, PLAYER_CHOICES.weapons);
 if (CLASSES[player.characterClass].bows) player.weapons = chooseBow(player.characterClass, PLAYER_CHOICES.bow);
-renderer.addPlayer(player.appearance, { caster: player.spells.length > 0, weapons: player.weapons });
+renderer.addPlayer(player.appearance, {
+  caster: player.spells.length > 0 && (CLASSES[player.characterClass].magic ?? 'holy'),
+  weapons: player.weapons,
+});
 player.view = renderer.playerModel;
 showSelectedWeapon();
 for (const npc of NPCS) npc.view = renderer.addNpc(npc);
@@ -1657,6 +2077,10 @@ function frame(now) {
   updateArrows(dt);
   updateReloading(dt);
   updateBeams(dt);
+  updateShoves(dt);
+  updateWalls(dt);
+  updateLeeches(dt);
+  updateFires(dt);
   updateStuns(dt);
   for (const npc of NPCS) {
     updateNpc(npc, dt);
