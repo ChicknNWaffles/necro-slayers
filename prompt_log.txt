@@ -481,3 +481,7 @@ maybe don't raise their health that much. The party member npcs could finish the
 please run the game so I can test it again
 
 please commit the changes
+
+please make the average number of enemies spawned in a clearing slowing increase the more clearings deep the player goes
+
+please commit the changes

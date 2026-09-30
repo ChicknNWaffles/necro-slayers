@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
     assert(took < 4000, 'Quick scene change: ' + took);
     assert.notEqual(await run(`JSON.stringify(window.gameDebug.clearing.trees.slice(0, 3))`), oldTrees, 'A new clearing');
     const secondEnemies = await enemies();
-    assert(secondEnemies >= 5 && secondEnemies <= 8, 'New enemies: ' + secondEnemies);
+    assert(secondEnemies >= 5 && secondEnemies <= 9, 'New enemies (a clearing deeper, up to one more): ' + secondEnemies);
     assert(await run(`window.gameDebug.NPCS.filter((n) => n.role === 'enemy').every((n) => !n.dead && n.health === n.maxHealth)`), 'Fresh enemies');
     assert(await run(`{ const g = window.gameDebug; g.clearing.isWalkable(g.player.position.x, g.player.position.z) }`), 'Arrived somewhere walkable');
     assert.equal(await run(`window.gameDebug.NPCS.some((n) => n.name === 'Evalyn')`), false, 'The dead stay behind');
@@ -71,7 +71,7 @@ app.whenReady().then(async () => {
     await wait(`!window.gameDebug.changingScene`);
     assert.equal(await run(`Boolean(document.querySelector('#scene-loading'))`), false, 'Loading screen gone afterwards');
     const thirdEnemies = await enemies();
-    assert(thirdEnemies >= 5 && thirdEnemies <= 8, 'Third clearing enemies: ' + thirdEnemies);
+    assert(thirdEnemies >= 5 && thirdEnemies <= 10, 'Third clearing enemies: ' + thirdEnemies);
     assert.deepEqual(errors, [], 'No errors or warnings');
     console.log('PASS: paths lead to new clearings with new enemies, built in the background; a loading screen covers it when they are not ready yet');
     app.exit(0);

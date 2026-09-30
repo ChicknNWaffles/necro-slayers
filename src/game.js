@@ -243,24 +243,33 @@ function withState(npc) {
   };
 }
 
-// Between 5 and 8 enemies, zombies and skeletons at random (at least one of
-// each), at random spots in the clearing: apart from each other, and far
-// enough from where the party starts that the game doesn't open in a fight.
-// (partyStarts: where the party will be; where: the clearing.)
-function spawnEnemies(partyStarts = [SPAWN, ...PARTY_STARTS], where = clearing) {
-  const count = 5 + Math.floor(Math.random() * 4);
+// Enemies (more, the deeper in -- see enemyCount), zombies and skeletons at
+// random (at least one of each), at random spots in the clearing: apart from
+// each other, and far enough from where the party starts that the game
+// doesn't open in a fight.
+// (partyStarts: where the party will be; where: the clearing; depth: which clearing it is.)
+function spawnEnemies(partyStarts = [SPAWN, ...PARTY_STARTS], where = clearing, depth = 1) {
+  const count = enemyCount(depth);
   const kinds = Array.from({ length: count }, (_, i) => (i === 0 ? zombie : i === 1 ? skeleton : Math.random() < 0.5 ? zombie : skeleton));
   const spots = [];
-  for (let tries = 0; spots.length < count && tries < 2000; tries++) {
+  for (let tries = 0; spots.length < count && tries < 3000; tries++) {
     const angle = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 17;
     const spot = { x: Math.sin(angle) * r, z: -Math.cos(angle) * r };
-    const fromParty = tries < 1500 ? 10 : tries < 1800 ? 8.5 : 5; // (closer, if there's no room further off)
+    const fromParty = tries < 2000 ? 10 : tries < 2500 ? 8.5 : 5; // (closer, if there's no room further off)
     if (!where.inClearing(spot.x, spot.z, 1.5)) continue;
     if (partyStarts.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < fromParty)) continue;
     if (spots.some((q) => Math.hypot(q.x - spot.x, q.z - spot.z) < 3)) continue;
     spots.push(spot);
   }
   return spots.map((spot, i) => kinds[i](spot));
+}
+
+// How many enemies there are in a clearing `depth` clearings in (the first is
+// 1): 5 to 8 in the first, and on average half an enemy more for each clearing
+// further in -- up to 14.
+function enemyCount(depth) {
+  const most = 14;
+  return Math.min(most, 5 + Math.floor(Math.random() * 4) + Math.floor((depth - 1) * 0.5 + Math.random()));
 }
 
 // A zombie to put in the world at a spot (a random character, see
@@ -2301,7 +2310,8 @@ const ARRIVAL_PAUSE = 2.5; // seconds the party stands in formation on arriving
 
 let changingScene = false;
 const buildInBackground = enemyBuilder();
-let nextScene = planScene();
+let depth = 1; // which clearing the party is in (the first is 1)
+let nextScene = planScene(depth + 1);
 
 // Sends characters to the background builders (two, working side by side,
 // if the computer has the cores for it); each promise resolves with the
@@ -2345,14 +2355,14 @@ function npcModelOptions(npc) {
 // The next clearing: its layout, where the party arrives (just inside it, at
 // the top of one of its paths, facing in), and its enemies -- being sculpted
 // in the background.
-function planScene() {
+function planScene(sceneDepth) {
   const layout = createClearing();
   const path = layout.paths[0];
   const top = path.points.find((p) => Math.hypot(p.x, p.z) >= layout.radiusAt(Math.atan2(p.x, -p.z)) - 2) ?? path.points[0];
   const arrival = { x: top.x, z: top.z, yaw: Math.atan2(top.x, top.z) }; // (facing the middle of the clearing)
   const partySpots = [arrival, formationPlace(FORMATION.left, arrival, arrival.yaw), formationPlace(FORMATION.right, arrival, arrival.yaw)];
-  const enemies = spawnEnemies(partySpots, layout).map(withState);
-  const plan = { clearing: layout, arrival, enemies, built: 0, shapes: [] };
+  const enemies = spawnEnemies(partySpots, layout, sceneDepth).map(withState);
+  const plan = { clearing: layout, depth: sceneDepth, arrival, enemies, built: 0, shapes: [] };
   plan.ready = Promise.all(enemies.map((npc, i) => buildInBackground(npc).then((shapes) => {
     plan.shapes[i] = shapes;
     plan.built++;
@@ -2410,7 +2420,8 @@ async function changeScene() {
   hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
   combat.active = false;
 
-  nextScene = planScene();
+  depth = plan.depth;
+  nextScene = planScene(depth + 1);
   await nextPaint();
   await fadeOut(false);
   changingScene = false;
