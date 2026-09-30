@@ -16,6 +16,7 @@ import { Hud } from './hud.js';
 import { CLASSES, WEAPONS } from './characterClasses.js';
 import { showCharacterCreator } from './characterCreator.js';
 import { sceneLoadingStep, hideSceneLoading } from './loadingScreen.js';
+import { createClearing } from './clearing.js';
 
 // Pause startup here: no world, gameplay input or mouse capture until Done.
 const PLAYER_CHOICES = await showCharacterCreator();
@@ -23,7 +24,11 @@ let gameplayReady = false;
 
 // --- World ---------------------------------------------------------------
 
-const FLOOR = { width: 40, depth: 40, y: 0 };
+// A forest clearing, laid out at random (see clearing.js): characters can go
+// anywhere in it, and along the two paths leading out of it, but not into
+// the trees. The ground is flat, at FLOOR.y.
+const FLOOR = { y: 0 };
+const clearing = createClearing();
 const GRAVITY = 20;       // units per second squared
 const FALL_LIMIT = -30;   // respawn if the player falls this far below the floor
 
@@ -271,7 +276,7 @@ const NPC_MOVE = {
   wanderSpeed: 4,       // a stroll
   wanderRange: 8,       // how far away the next spot to wander to can be
   wait: [1.5, 4],       // how long they stand still between wanders (seconds)
-  edgeMargin: 1.5,      // they stay this far in from the edges of the floor
+  edgeMargin: 1.5,      // where they wander to is this far in from the edge of the clearing
   followDistance: 1.4,  // how close behind the player they stay when following
   followSlack: 0.5,     // how much further the player can get before they set off again
   jumpDelay: 0.15,      // they jump this long after the player
@@ -739,11 +744,10 @@ function onPlayerJump() {
   for (const npc of NPCS) if (npc.following && npc.onGround) npc.jumpDelay = NPC_MOVE.jumpDelay;
 }
 
-// The furthest an NPC goes from the middle of the floor, so they never walk off.
-function keepOnFloor(pos) {
-  const maxX = FLOOR.width / 2 - NPC_MOVE.edgeMargin, maxZ = FLOOR.depth / 2 - NPC_MOVE.edgeMargin;
-  pos.x = Math.min(Math.max(pos.x, -maxX), maxX);
-  pos.z = Math.min(Math.max(pos.z, -maxZ), maxZ);
+// Keeps an NPC (or where they're going) out of the trees: in the clearing or
+// on a path, sliding along the edge from where they were (`from`), if given.
+function keepOnFloor(pos, from = null, margin = 0.4) {
+  clearing.keepWalkable(pos, margin, from);
 }
 
 // A random spot on the floor to wander to, away from the edges. Party members
@@ -755,7 +759,7 @@ function pickWanderTarget(npc) {
   const angle = Math.random() * Math.PI * 2;
   const distance = range * (npc.follows ? Math.sqrt(Math.random()) : 0.3 + 0.7 * Math.random());
   const target = { x: centre.x + Math.sin(angle) * distance, z: centre.z + Math.cos(angle) * distance };
-  keepOnFloor(target);
+  keepOnFloor(target, null, NPC_MOVE.edgeMargin); // (in the clearing, away from the trees -- not off down a path)
   return target;
 }
 
@@ -990,7 +994,7 @@ function updateNpc(npc, dt) {
   } else if (face) {
     faceX = face.x - pos.x; faceZ = face.z - pos.z;
   }
-  keepOnFloor(pos);
+  keepOnFloor(pos, start);
   if (!npc.dead) pushAwayFromPlayer(npc);
   if (!npc.dead) collideWithWalls(pos, npc.radius);
   // How fast they actually moved (less if the edge of the floor or the player
@@ -1989,8 +1993,9 @@ function isActionHeld(action) {
 
 // --- Physics -------------------------------------------------------------
 
-function isAboveFloor(x, z) {
-  return Math.abs(x) <= FLOOR.width / 2 && Math.abs(z) <= FLOOR.depth / 2;
+// (The forest floor goes on under the trees: there's no edge to fall off.)
+function isAboveFloor() {
+  return true;
 }
 
 function isFallingNearFloor() {
@@ -2002,6 +2007,7 @@ function isFallingNearFloor() {
 
 function updatePlayer(dt) {
   const pos = player.position;
+  const from = { x: pos.x, z: pos.z };
   const stunned = player.stunTime > 0 || updateKnockback(player, dt) || player.rootTime > 0; // (a stunned, thrown or held player can't move or jump)
 
   // Horizontal movement, relative to the direction the camera faces.
@@ -2044,6 +2050,8 @@ function updatePlayer(dt) {
   } else {
     player.moveSpeed = 0;
   }
+  // (Not into the trees: sliding along the edge of the clearing or path instead.)
+  clearing.keepWalkable(pos, 0.1, from);
 
   // Turn the body towards the side being moved to (right is a negative yaw),
   // easing back to the normal orientation when sideways movement stops.
@@ -2088,7 +2096,9 @@ function updatePlayer(dt) {
 
 await sceneLoadingStep('Laying out the world…', 5);
 const renderer = new GameRenderer(document.body);
-renderer.addFloor(FLOOR);
+renderer.addClearing(clearing);
+// (Anyone placed among the trees steps out into the clearing.)
+for (const npc of NPCS) keepOnFloor(npc.position, null, 1);
 player.characterClass = PLAYER_CHOICES.characterClass;
 if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells);
 if (CLASSES[player.characterClass].weapons) player.weapons = chooseWeapons(player.characterClass, PLAYER_CHOICES.weapons);

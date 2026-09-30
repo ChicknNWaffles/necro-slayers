@@ -51,6 +51,8 @@ behind the player.
 - `src/` – the game itself
   - `characterCreator.js` / `characterCreator.css` – appearance preview and class selection before gameplay
   - `characterClasses.js` – class and weapon choices shared by the creator and game
+  - `clearing.js` – the forest clearing's layout, placed at random from a seed: its edge, two paths out, trees, bushes, rocks, and where characters can walk
+  - `forestModel.js` – draws the clearing (part of the renderer): toon-shaded trees, bushes, rocks, grass, flowers, dirt paths and a painted forest backdrop
   - `index.html` – the game page
   - `style.css` – styles
   - `game.js` – main game script (state, rules, input, game loop)

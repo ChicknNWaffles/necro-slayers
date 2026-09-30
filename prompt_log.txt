@@ -453,3 +453,9 @@ please run the game so I can test it
 please raise the height of the leather pauldrons just a little, as the tunic sleeves are clipping through them just a little on the default body size
 
 please commit the changes
+
+Please change the scene so that instead of taking place on a green plane hovering in the void, it takes place in a grassy forest clearing. Please make the trees look good. Not AAA good, but similar quality to our characters. Please make it so that there are two path exits from the clearing which appear to be going off into the forest. Later I will have you do a scene change if the player tries to go into the path (to a new clearing, so please make the tree positions random so that it can do that easily) so no need to actually create the whole forest past the clearing, just a few trees deep and then an illusion of more from a skybox painting
+
+please run the game so I can test it
+
+please commit the changes

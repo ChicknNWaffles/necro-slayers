@@ -4,6 +4,7 @@
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { CharacterModel, glowTexture } from './characterModel.js';
 import { createArrow } from './weaponModel.js';
+import { createForest, HAZE_COLOR, SKY_COLOR } from './forestModel.js';
 
 // How long a Wall of Earth takes to crumble away, from its top row to its bottom.
 export const WALL_CRUMBLE_TIME = 1.0;
@@ -26,8 +27,9 @@ export class GameRenderer {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xbfd9ee);
-    this.scene.fog = new THREE.Fog(0xbfd9ee, 30, 90);
+    // (Above the painted backdrop, the sky; the haze fades distant trees into the painting.)
+    this.scene.background = new THREE.Color(SKY_COLOR);
+    this.scene.fog = new THREE.Fog(HAZE_COLOR, 24, 80);
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
     this.scene.add(this.camera);
@@ -46,31 +48,23 @@ export class GameRenderer {
   }
 
   addLights() {
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x667766, 1.2));
+    this.scene.add(new THREE.HemisphereLight(0xeef6ff, 0x5d6b45, 1.2));
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+    const sun = new THREE.DirectionalLight(0xfff1dc, 1.6);
     sun.position.set(10, 20, 8);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    const s = 30; // shadow camera covers the whole floor
+    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.bias = -0.0004;
+    const s = 36; // shadow camera covers the clearing and the trees round it
     Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s });
     this.scene.add(sun);
   }
 
-  // A flat horizontal floor centred on the origin, with a grid so movement is visible.
-  addFloor({ width, depth, y }) {
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, depth),
-      new THREE.MeshStandardMaterial({ color: 0x7fa36b }),
-    );
-    floor.rotation.x = -Math.PI / 2; // PlaneGeometry is vertical by default
-    floor.position.y = y;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
-
-    const grid = new THREE.GridHelper(Math.max(width, depth), Math.max(width, depth), 0x4d6b40, 0x5d7f4f);
-    grid.position.y = y + 0.01; // just above the floor to avoid z-fighting
-    this.scene.add(grid);
+  // The forest clearing (see clearing.js for its layout, and forestModel.js
+  // for how it's drawn).
+  addClearing(clearing) {
+    this.forest = createForest(clearing);
+    this.scene.add(this.forest.group);
   }
 
   // The player's character model, built from their appearance (see characterModel.js).
@@ -1164,6 +1158,7 @@ export class GameRenderer {
     const now = performance.now();
     this.updateEffects(Math.min((now - this.lastRender) / 1000, 0.1));
     this.lastRender = now;
+    this.forest?.update(now / 1000);
     this.renderer.render(this.scene, this.camera);
   }
 }
