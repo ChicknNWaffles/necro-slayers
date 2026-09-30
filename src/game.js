@@ -15,8 +15,10 @@ import { createZombie, createSkeleton } from './enemies.js';
 import { Hud } from './hud.js';
 import { CLASSES, WEAPONS } from './characterClasses.js';
 import { showCharacterCreator } from './characterCreator.js';
-import { sceneLoadingStep, hideSceneLoading } from './loadingScreen.js';
+import { sceneLoadingStep, hideSceneLoading, nextPaint } from './loadingScreen.js';
+import { installGeometry } from './geometryCaches.js';
 import { createClearing } from './clearing.js';
+import { showGameOver } from './gameOverScreen.js';
 
 // Pause startup here: no world, gameplay input or mouse capture until Done.
 const PLAYER_CHOICES = await showCharacterCreator();
@@ -28,7 +30,7 @@ let gameplayReady = false;
 // anywhere in it, and along the two paths leading out of it, but not into
 // the trees. The ground is flat, at FLOOR.y.
 const FLOOR = { y: 0 };
-const clearing = createClearing();
+let clearing = createClearing(); // (replaced by a new one when the player leaves down a path -- see changeScene)
 const GRAVITY = 20;       // units per second squared
 const FALL_LIMIT = -30;   // respawn if the player falls this far below the floor
 
@@ -60,8 +62,8 @@ const player = {
   strafeTurn: 0,          // extra body rotation while moving sideways (visual only)
   appearance: createAppearance(PLAYER_CHOICES.appearance), // how the character looks (see characterAppearance.js)
   name: 'You',
-  maxHealth: 100,
-  health: 100,
+  maxHealth: 200,
+  health: 200,
   shieldTime: 0,  // seconds of Shield of Faith left
   empowerTime: 0, // seconds of Sovereign Aid left
   stunTime: 0,    // seconds of being stunned left (see Cleansing Light)
@@ -130,6 +132,18 @@ export function setPlayerAppearance(values) {
 // toggles it), and enemies wander freely. In combat mode (see updateCombat),
 // party members who were following keep in formation round the player, the
 // others go after the enemies, and enemies go after the party.
+// Followers walk in a triangle with the player at its point: Evalyn behind
+// on the left, Fredrick behind on the right (units to the player's right, and behind).
+const FORMATION = {
+  left: { right: -1.0, back: 1.3 },
+  right: { right: 1.0, back: 1.3 },
+  rear: { right: 0, back: 2.2 },
+};
+
+// Evalyn and Fredrick start in their places in the formation, behind the
+// player (who starts facing -Z, so behind is +Z and their right is +X).
+const PARTY_STARTS = [FORMATION.left, FORMATION.right].map((slot) => ({ x: SPAWN.x + slot.right, z: SPAWN.z + slot.back }));
+
 const NPCS = [
   {
     // Evalyn, a cleric: a pale, freckled, red-haired woman in a flowing white
@@ -151,11 +165,11 @@ const NPCS = [
       footwear: 'sandals',
       shoeColor: '#7a4a2a',    // brown sandals
     }),
-    position: { x: -6, y: FLOOR.y, z: -7 },
-    yaw: Math.atan2(-6, -7), // facing the middle of the floor (where the player starts)
+    position: { ...PARTY_STARTS[0], y: FLOOR.y },
+    yaw: 0, // (facing the same way as the player)
     radius: 0.5,
     follows: true,
-    maxHealth: 80,
+    maxHealth: 160,
     spells: ['divineRestoration', 'shieldOfFaith', 'divineBlade', 'smite'], // (in order of preference)
     caster: true,
     formation: 'left', // (her place behind the player when following -- see FORMATION)
@@ -188,11 +202,11 @@ const NPCS = [
       leatherColor: '#6b4428',
     }),
     weapons: ['sword', 'shield'],
-    position: { x: 6, y: FLOOR.y, z: -7 },
-    yaw: Math.atan2(6, -7),
+    position: { ...PARTY_STARTS[1], y: FLOOR.y },
+    yaw: 0,
     radius: 0.5,
     follows: true,
-    maxHealth: 130,
+    maxHealth: 240,
     // A sword-and-shield fighter's moves (see MOVES), picked at random: mostly
     // slashes and stabs, now and then a shield bash; and he raises his shield
     // against blows (and arrows) coming at him -- see guard.
@@ -202,16 +216,65 @@ const NPCS = [
     guardRange: 6, // (while following, he leaves his place to fight enemies this close to the player)
     formation: 'right',
   },
-  {
-    // A zombie: the first enemy (a random character, see enemies.js). It
-    // shambles around slowly with its arms out; it doesn't fight yet.
+  // A random assortment of zombies and skeletons, spread round the clearing.
+  ...spawnEnemies(),
+].map(withState);
+
+// An NPC as they start out in the world: unhurt, standing, doing nothing yet.
+function withState(npc) {
+  return {
+    ...npc,
+    health: npc.maxHealth,
+    dead: false,
+    shieldTime: 0,    // seconds of Shield of Faith left
+    empowerTime: 0,   // seconds of Sovereign Aid left
+    stunTime: 0,      // seconds of being stunned left (see Cleansing Light)
+    casting: null,    // the spell they're in the middle of casting: { spell, target, time, landed }
+    cooldowns: {},    // spell -> seconds until it can be cast again
+    position: { ...npc.position },
+    velocityY: 0,
+    onGround: true,
+    following: false,
+    target: null,     // where they're wandering to
+    waitTime: 1,      // seconds to stand still before wandering on
+    jumpDelay: -1,    // seconds until they jump after the player (-1: not jumping)
+    moveSpeed: 0,
+    running: false,
+  };
+}
+
+// Between 5 and 8 enemies, zombies and skeletons at random (at least one of
+// each), at random spots in the clearing: apart from each other, and far
+// enough from where the party starts that the game doesn't open in a fight.
+// (partyStarts: where the party will be; where: the clearing.)
+function spawnEnemies(partyStarts = [SPAWN, ...PARTY_STARTS], where = clearing) {
+  const count = 5 + Math.floor(Math.random() * 4);
+  const kinds = Array.from({ length: count }, (_, i) => (i === 0 ? zombie : i === 1 ? skeleton : Math.random() < 0.5 ? zombie : skeleton));
+  const spots = [];
+  for (let tries = 0; spots.length < count && tries < 2000; tries++) {
+    const angle = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 17;
+    const spot = { x: Math.sin(angle) * r, z: -Math.cos(angle) * r };
+    const fromParty = tries < 1500 ? 10 : tries < 1800 ? 8.5 : 5; // (closer, if there's no room further off)
+    if (!where.inClearing(spot.x, spot.z, 1.5)) continue;
+    if (partyStarts.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < fromParty)) continue;
+    if (spots.some((q) => Math.hypot(q.x - spot.x, q.z - spot.z) < 3)) continue;
+    spots.push(spot);
+  }
+  return spots.map((spot, i) => kinds[i](spot));
+}
+
+// A zombie to put in the world at a spot (a random character, see
+// enemies.js). It shambles about slowly with its arms out, and scratches
+// and bites.
+function zombie(position) {
+  return {
     name: 'Zombie',
     role: 'enemy',
     ...createZombie(),
     pose: 'zombie',
     undead: true,
-    position: { x: 7, y: FLOOR.y, z: -9 },
-    yaw: Math.atan2(7, -9),
+    position: { x: position.x, y: FLOOR.y, z: position.z },
+    yaw: Math.random() * Math.PI * 2,
     radius: 0.45,
     follows: false,
     wanderSpeed: 1.2,
@@ -219,33 +282,12 @@ const NPCS = [
     maxHealth: 140, // (enough to take a few hits from anyone, as encounters will have several)
     attacks: ['scratch', 'scratch', 'bite'], // (picked at random: scratching more often than biting)
     attackPause: [1.2, 2.2], // seconds between attacks
-  },
-  // Skeletons (random characters, see enemies.js): bare bones in a torn
-  // shirt, quicker than zombies, each armed with a sword or a short bow --
-  // which work for them just as they do for the player.
-  skeleton({ x: -9, z: -12 }),
-  skeleton({ x: 13, z: 3 }),
-].map((npc) => ({
-  ...npc,
-  health: npc.maxHealth,
-  dead: false,
-  shieldTime: 0,    // seconds of Shield of Faith left
-  empowerTime: 0,   // seconds of Sovereign Aid left
-  stunTime: 0,      // seconds of being stunned left (see Cleansing Light)
-  casting: null,    // the spell they're in the middle of casting: { spell, target, time, landed }
-  cooldowns: {},    // spell -> seconds until it can be cast again
-  position: { ...npc.position },
-  velocityY: 0,
-  onGround: true,
-  following: false,
-  target: null,     // where they're wandering to
-  waitTime: 1,      // seconds to stand still before wandering on
-  jumpDelay: -1,    // seconds until they jump after the player (-1: not jumping)
-  moveSpeed: 0,
-  running: false,
-}));
+  };
+}
 
-// A skeleton to put in the world at a spot.
+// A skeleton to put in the world at a spot (a random character, see
+// enemies.js): bare bones in a torn shirt, quicker than zombies, armed with a
+// sword or a short bow -- which work for them just as they do for the player.
 function skeleton(position) {
   const { appearance, decay, weapon } = createSkeleton();
   return {
@@ -882,25 +924,19 @@ function keepAtRange(npc, target, [near, far]) {
 }
 
 // In formation: each follower has a place beside and behind the player,
-// turning with them, and keeps to it (running to catch up), facing the enemy.
-// Followers walk in a triangle with the player at its point: Evalyn behind
-// on the left, Fredrick behind on the right (units to the player's right, and behind).
-const FORMATION = {
-  left: { right: -1.3, back: 1.3 },
-  right: { right: 1.3, back: 1.3 },
-  rear: { right: 0, back: 2.2 },
-};
-
+// turning with them, and keeps to it (running to catch up), facing the enemy
+// (see FORMATION).
 function formationSpot(npc) {
-  const slot = FORMATION[npc.formation] ?? FORMATION.rear;
-  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  // (The player's right is (cos, -sin) and forward is (-sin, -cos).)
-  const goal = {
-    x: player.position.x + cos * slot.right + sin * slot.back,
-    z: player.position.z - sin * slot.right + cos * slot.back,
-  };
+  const goal = formationPlace(FORMATION[npc.formation] ?? FORMATION.rear, player.position, player.yaw);
   keepOnFloor(goal);
   return goal;
+}
+
+// A place in the formation (a slot in FORMATION) round someone at `at`, facing `yaw`.
+function formationPlace(slot, at, yaw) {
+  const sin = Math.sin(yaw), cos = Math.cos(yaw);
+  // (Their right is (cos, -sin) and forward is (-sin, -cos).)
+  return { x: at.x + cos * slot.right + sin * slot.back, z: at.z - sin * slot.right + cos * slot.back };
 }
 
 function keepFormation(npc) {
@@ -1773,7 +1809,7 @@ const BLOCK_PROTECTION = 0.85; // the share of damage a raised shield stops
 const BLOCK_ARC = 1.2;         // how far round from straight ahead (radians) it covers
 
 function hurt(target, damage, attacker = null) {
-  if (target.dead) return false;
+  if (target.dead || changingScene) return false; // (no one is hurt while the party moves on)
   if (attacker?.empowerTime > 0) damage *= 1 + EMPOWER_BONUS;
   if (target.shieldTime > 0) damage *= 1 - SHIELD_PROTECTION;
   let blocked = false;
@@ -1789,14 +1825,24 @@ function hurt(target, damage, attacker = null) {
     }
   }
   target.health = Math.max(target.health - damage, 0);
-  if (target.health > 0 || target === player) {
+  if (target.health > 0) {
     if (!blocked) renderer.npcFlinch(target.view);
   } else {
     target.dead = true;
     target.casting = null;
     renderer.npcDie(target.view);
+    if (target === player) onPlayerDeath();
   }
   return blocked;
+}
+
+// The player has died: they fall, the game lets go of the mouse, and after a
+// moment (to see them fall) the game over screen comes up.
+const GAME_OVER_DELAY = 1800; // milliseconds
+function onPlayerDeath() {
+  setPlayerBlocking(false);
+  document.exitPointerLock();
+  setTimeout(() => showGameOver(), GAME_OVER_DELAY);
 }
 
 // --- Combat mode -----------------------------------------------------------
@@ -1942,7 +1988,7 @@ const KEY_BINDINGS = {
 const heldKeys = new Set();
 
 window.addEventListener('keydown', (e) => {
-  if (!gameplayReady) return;
+  if (!gameplayReady || player.dead) return;
   if (e.key === 'Shift') startOrbit();
   if (e.key.toLowerCase() === 'z' && !e.repeat) toggleFollowing();
   const spellSlot = PLAYER_SPELL_KEYS.indexOf(e.key);
@@ -2008,7 +2054,7 @@ function isFallingNearFloor() {
 function updatePlayer(dt) {
   const pos = player.position;
   const from = { x: pos.x, z: pos.z };
-  const stunned = player.stunTime > 0 || updateKnockback(player, dt) || player.rootTime > 0; // (a stunned, thrown or held player can't move or jump)
+  const stunned = player.dead || changingScene || player.stunTime > 0 || updateKnockback(player, dt) || player.rootTime > 0; // (a dead, stunned, thrown or held player can't move or jump)
 
   // Horizontal movement, relative to the direction the camera faces.
   const forward = stunned ? 0 : Number(isActionHeld('forward')) - Number(isActionHeld('back'));
@@ -2120,9 +2166,13 @@ for (let i = 0; i < NPCS.length; i++) {
 // the enemies' health bars.
 await sceneLoadingStep('Preparing portraits and abilities…', 80);
 const hud = new Hud(document.body);
-hud.setParty(partyMembers().map((member) => ({
-  id: member, name: member.name, portrait: renderer.portrait(member.view),
-})));
+for (const member of partyMembers()) member.portrait = renderer.portrait(member.view);
+showParty();
+
+// The party's health bars (with their portraits) in the HUD.
+function showParty() {
+  hud.setParty(partyMembers().map((member) => ({ id: member, name: member.name, portrait: member.portrait })));
+}
 hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
 hud.setSpells(playerSlots().map((name, i) => {
   const { label, detail } = MOVES[name] ?? SPELLS[name];
@@ -2188,7 +2238,7 @@ const startupCapture = setInterval(captureMouseOnStartup, MOUSE_CAPTURE_RETRY_MS
 captureMouseOnStartup();
 
 renderer.canvas.addEventListener('click', () => {
-  if (document.pointerLockElement !== renderer.canvas) {
+  if (document.pointerLockElement !== renderer.canvas && !player.dead) {
     // Refused if clicked within about a second of pressing Esc; click again.
     renderer.canvas.requestPointerLock()?.catch(() => {});
   }
@@ -2206,6 +2256,7 @@ const RIGHT_MOUSE_BUTTON = 2;
 const LEFT_MOUSE_BUTTON = 0;
 
 document.addEventListener('mousedown', (e) => {
+  if (player.dead) return;
   if (e.button === RIGHT_MOUSE_BUTTON && document.pointerLockElement === renderer.canvas) {
     jumpRequested = true;
   }
@@ -2236,6 +2287,179 @@ document.addEventListener('mouseup', (e) => {
 // Don't open a context menu on right click.
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
+// --- Moving on: new clearings -----------------------------------------------
+
+// Walking far enough down either path out of the clearing leads on to a new
+// clearing, with new enemies in it: the party arrives down one of its paths.
+// The next clearing -- its layout, and its enemies -- is planned ahead, and
+// its enemies' shapes are sculpted in the background (see enemyWorker.js)
+// while the player is busy in this one, so moving on is quick. (If they
+// aren't ready yet, a loading screen shows until they are.)
+const LEAVE_DISTANCE = 4; // how far down a path, past the edge of the clearing, leads on
+const FADE_TIME = 500;    // milliseconds to fade out (and back in)
+const ARRIVAL_PAUSE = 2.5; // seconds the party stands in formation on arriving
+
+let changingScene = false;
+const buildInBackground = enemyBuilder();
+let nextScene = planScene();
+
+// Sends characters to the background builders (two, working side by side,
+// if the computer has the cores for it); each promise resolves with the
+// shapes sculpted (or none, if it can't be -- they're then made on the spot).
+function enemyBuilder() {
+  const workers = [];
+  const waiting = new Map();
+  let lastId = 0;
+  const count = Math.min(2, Math.max(1, (navigator.hardwareConcurrency ?? 2) - 1));
+  for (let i = 0; i < count; i++) {
+    try {
+      const worker = new Worker(new URL('./enemyWorker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = ({ data }) => {
+        if (data.error) console.warn('Background build failed:', data.error);
+        waiting.get(data.id)?.resolve(data.entries ?? []);
+        waiting.delete(data.id);
+      };
+      worker.onerror = (e) => {
+        console.warn('Background builder stopped:', e.message);
+        workers.splice(workers.indexOf(worker), 1);
+        for (const [id, job] of waiting) if (job.worker === worker) { job.resolve([]); waiting.delete(id); }
+      };
+      workers.push(worker);
+    } catch (error) {
+      console.warn('No background builder:', error);
+    }
+  }
+  return (npc) => new Promise((resolve) => {
+    if (!workers.length) return resolve([]);
+    const id = ++lastId, worker = workers[id % workers.length];
+    waiting.set(id, { resolve, worker });
+    worker.postMessage({ id, appearance: npc.appearance, options: npcModelOptions(npc) });
+  });
+}
+
+// How an NPC's model is made (as renderer.addNpc makes it).
+function npcModelOptions(npc) {
+  return { pose: npc.pose, decay: npc.decay, caster: npc.caster, weapons: npc.weapons ?? [] };
+}
+
+// The next clearing: its layout, where the party arrives (just inside it, at
+// the top of one of its paths, facing in), and its enemies -- being sculpted
+// in the background.
+function planScene() {
+  const layout = createClearing();
+  const path = layout.paths[0];
+  const top = path.points.find((p) => Math.hypot(p.x, p.z) >= layout.radiusAt(Math.atan2(p.x, -p.z)) - 2) ?? path.points[0];
+  const arrival = { x: top.x, z: top.z, yaw: Math.atan2(top.x, top.z) }; // (facing the middle of the clearing)
+  const partySpots = [arrival, formationPlace(FORMATION.left, arrival, arrival.yaw), formationPlace(FORMATION.right, arrival, arrival.yaw)];
+  const enemies = spawnEnemies(partySpots, layout).map(withState);
+  const plan = { clearing: layout, arrival, enemies, built: 0, shapes: [] };
+  plan.ready = Promise.all(enemies.map((npc, i) => buildInBackground(npc).then((shapes) => {
+    plan.shapes[i] = shapes;
+    plan.built++;
+  })));
+  return plan;
+}
+
+// Leaves by a path, once the player is far enough down it.
+function checkLeaving() {
+  if (changingScene || player.dead) return;
+  const { x, z } = player.position;
+  const beyond = Math.hypot(x, z) - clearing.radiusAt(Math.atan2(x, -z));
+  if (beyond > LEAVE_DISTANCE && clearing.pathDistance(x, z) < clearing.paths[0].halfWidth + 0.5) changeScene();
+}
+
+async function changeScene() {
+  changingScene = true;
+  const plan = nextScene;
+  await fadeOut(true);
+  // The party leaves the old clearing straight away (so nothing goes on
+  // there without the player), and only arrives in the new one once it's ready.
+  leaveClearing();
+  // (Still sculpting the enemies ahead: wait for them, with a loading screen.)
+  if (plan.built < plan.enemies.length) {
+    while (plan.built < plan.enemies.length) {
+      await sceneLoadingStep(`Following the path onwards… (${plan.built} of ${plan.enemies.length})`, (plan.built / plan.enemies.length) * 100);
+      await Promise.race([plan.ready, new Promise((r) => setTimeout(r, 250))]);
+    }
+    hideSceneLoading();
+  }
+
+  clearing = plan.clearing;
+  renderer.addClearing(clearing);
+
+  // The party arrives: the player at the top of the path, the others in
+  // formation behind them.
+  Object.assign(player.position, { x: plan.arrival.x, y: FLOOR.y, z: plan.arrival.z });
+  player.yaw = plan.arrival.yaw;
+  player.velocityY = 0;
+  camera.yawOffset = 0;
+  for (const npc of NPCS) {
+    Object.assign(npc.position, formationSpot(npc), { y: FLOOR.y });
+    npc.yaw = player.yaw;
+    npc.velocityY = 0;
+    npc.waitTime = ARRIVAL_PAUSE; // (standing in formation a moment, before wandering off)
+    renderer.updateNpc(npc.view, npc.position, npc.yaw);
+  }
+
+  // The new clearing's enemies (quick to make, their shapes being ready).
+  plan.enemies.forEach((npc, i) => {
+    installGeometry(plan.shapes[i] ?? []);
+    npc.view = renderer.addNpc(npc);
+    NPCS.push(npc);
+  });
+  hud.setEnemies(NPCS.filter((npc) => npc.role === 'enemy').map((npc) => ({ id: npc })));
+  combat.active = false;
+
+  nextScene = planScene();
+  await nextPaint();
+  await fadeOut(false);
+  changingScene = false;
+}
+
+// Clears away everything left in the clearing being left: its enemies, any of
+// the party who died there (they don't come along), and anything still
+// flying, burning or standing.
+function leaveClearing() {
+  for (const arrow of arrows) renderer.endArrow(arrow.view, { stick: false });
+  for (const leech of leeches) leech.view?.parent?.remove(leech.view);
+  for (const list of [arrows, leeches, beams, fires, walls, shoves, storms]) list.length = 0;
+  renderer.clearEffects();
+  for (let i = NPCS.length - 1; i >= 0; i--) {
+    if (NPCS[i].role !== 'enemy' && !NPCS[i].dead) continue;
+    renderer.removeNpc(NPCS[i].view);
+    NPCS.splice(i, 1);
+  }
+  showParty();
+  hud.setEnemies([]);
+  for (const character of [player, ...NPCS]) {
+    Object.assign(character, { casting: null, stunTime: 0, rootTime: 0 });
+    if (character !== player) Object.assign(character, { target: null, detour: null, guardTime: 0, guarding: null });
+  }
+}
+
+// Fades the screen to black (out: true) or back (false).
+function fadeOut(out) {
+  let curtain = document.querySelector('#scene-fade');
+  if (!curtain) {
+    curtain = document.createElement('div');
+    curtain.id = 'scene-fade';
+    document.body.append(curtain);
+  }
+  curtain.getBoundingClientRect(); // (so the change animates)
+  curtain.classList.toggle('dark', out);
+  return new Promise((resolve) => setTimeout(resolve, FADE_TIME));
+}
+
+// (For automated tests: the game's state, when the page is opened with ?debug.)
+if (new URLSearchParams(location.search).has('debug')) {
+  window.gameDebug = {
+    player, NPCS,
+    get clearing() { return clearing; },
+    get nextScene() { return nextScene; },
+    get changingScene() { return changingScene; },
+  };
+}
+
 let lastTime = performance.now();
 
 function frame(now) {
@@ -2247,6 +2471,7 @@ function frame(now) {
 
   updateCamera(dt);
   updatePlayer(dt);
+  checkLeaving();
   renderer.updatePlayer(player.position, player.yaw + player.strafeTurn);
   renderer.animatePlayer({
     speed: player.moveSpeed,

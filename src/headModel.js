@@ -7,6 +7,7 @@
 // Built around the centre of the skull, in units of the head radius R, facing
 // -z (the character's right is +x). The caller scales it by R.
 import * as THREE from '../node_modules/three/build/three.module.js';
+import { registerGeometryCache } from './geometryCaches.js';
 import { meshFromDistance, smoothUnion } from './sculptedSurface.js';
 
 const DETAIL = 0.014;  // sampling size, in head radii
@@ -243,7 +244,7 @@ function headDistance(x, y, z, es, m = 0, droop = 0) {
   return d;
 }
 
-const cache = new Map(); // eye size -> geometry
+const cache = registerGeometryCache('heads'); // eye size -> geometry
 
 // The head's skin mesh, scaled to head radius R. m: body type (0 female, 1
 // male); droop: how far the upper eyelids hang down (0-1, see lidCurve).

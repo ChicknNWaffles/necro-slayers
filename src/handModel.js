@@ -7,6 +7,7 @@
 //   origin at the wrist, fingers pointing down (-y), palm facing -x (towards
 //   the body), thumb towards -z (forwards). The left hand is a mirror image.
 import * as THREE from '../node_modules/three/build/three.module.js';
+import { registerGeometryCache } from './geometryCaches.js';
 import { meshFromDistance, smoothUnion } from './sculptedSurface.js';
 
 const HAND_DETAIL = 0.0017; // sampling size: much finer than the body, for the fingers
@@ -215,7 +216,7 @@ function handDistance(x, y, z) {
   return Math.min(d, thumb); // the thumb is added last, so the limit doesn't touch it
 }
 
-const geometryCache = new Map(); // side + build -> geometry
+const geometryCache = registerGeometryCache('hands'); // side + build -> geometry
 const GEOMETRY_CACHE_SIZE = 8;
 
 // The hand's mesh, including the lower forearm blended into the wrist.

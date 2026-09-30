@@ -7,6 +7,7 @@
 // can edit it live. Limbs hang from named joints so they can be animated later.
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { buildDepth } from './characterAppearance.js';
+import { registerGeometryCache } from './geometryCaches.js';
 import {
   profile, blob, ridge, partDistance, smoothUnion, meshFromDistance, angleAround, smoothNormals,
 } from './sculptedSurface.js';
@@ -280,7 +281,7 @@ const JOINS = { forearm: WRIST_JOIN, shin: ANKLE_JOIN };
 
 const SCULPT_DETAIL = 0.008; // sampling size when turning the sculpt into a mesh
 const SCULPT_CACHE_SIZE = 4;
-const sculptCache = new Map(); // build -> finished body mesh geometry
+const sculptCache = registerGeometryCache('body'); // build -> finished body mesh geometry
 
 function buildBody(a, poseName = 'stand', decay = null) {
   const mats = {
@@ -1136,7 +1137,7 @@ function chestPlateGeometry(torsoDistance) {
 
 // Reuses geometry that takes a while to make (e.g. while a character creator
 // changes colours).
-const geometryCache = new Map();
+const geometryCache = registerGeometryCache('clothes');
 function cached(key, make) {
   let g = geometryCache.get(key);
   if (!g) {

@@ -66,3 +66,16 @@
 .appearance-category-tabs button[aria-selected="true"] { background: #79603d; color: #f8e6bb; box-shadow: inset 0 0 0 2px #c8a36355; }
 .appearance-group { border: 0; padding-top: 0; }
 .appearance-group h3 { margin: 0 0 20px; color: #61401f; font-variant: small-caps; }
+/* Game over: the scene darkens and a parchment card fades in over it. */
+#game-over { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: radial-gradient(ellipse at center, #3a0f0a88, #120806ee); color: var(--ink); font-family: Georgia, serif; animation: game-over-fade 1.6s ease-out both; }
+.game-over-parchment { width: min(480px, 78vw); padding: 36px 44px; text-align: center; background: var(--parchment); border: 2px solid #96703c; outline: 1px solid #c7a565; outline-offset: -9px; box-shadow: 0 15px 65px #000c, inset 0 0 40px #91602755; border-radius: 5px 12px 6px 10px; animation: game-over-rise 1.6s ease-out both; }
+.game-over-sigil { font-size: 44px; color: #7c2a1c; }
+.game-over-parchment h1 { font-size: 40px; font-weight: normal; margin: 10px 0 16px; color: #5b1c12; letter-spacing: .04em; }
+.game-over-message { color: #5d452b; font-style: italic; margin: 0 0 26px; }
+.game-over-retry { font: inherit; font-size: 17px; padding: 9px 30px; color: #f3e3bd; background: linear-gradient(#7a5530, #4e3219); border: 1px solid #2f1f10; border-radius: 3px 7px 4px 6px; box-shadow: 0 2px 5px #0007, inset 0 1px #b58a5a; cursor: pointer; }
+.game-over-retry:hover, .game-over-retry:focus-visible { background: linear-gradient(#8e6538, #5b3b1e); outline: 2px solid #edd08a; outline-offset: 2px; }
+@keyframes game-over-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes game-over-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+/* Moving on to a new clearing: the screen fades to black and back. */
+#scene-fade { position: fixed; inset: 0; z-index: 90; background: #0b0806; opacity: 0; pointer-events: none; transition: opacity 500ms ease; }
+#scene-fade.dark { opacity: 1; }

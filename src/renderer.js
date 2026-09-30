@@ -63,8 +63,35 @@ export class GameRenderer {
   // The forest clearing (see clearing.js for its layout, and forestModel.js
   // for how it's drawn).
   addClearing(clearing) {
+    if (this.forest) {
+      // (Replacing the last one: it's cleared away first.)
+      this.scene.remove(this.forest.group);
+      this.forest.group.traverse((o) => {
+        o.geometry?.dispose();
+        for (const m of [o.material].flat()) { m?.map?.dispose(); m?.dispose(); }
+      });
+    }
     this.forest = createForest(clearing);
     this.scene.add(this.forest.group);
+  }
+
+  // Takes an NPC's model out of the scene for good (e.g. leaving a clearing).
+  removeNpc(model) {
+    this.scene.remove(model.root);
+    model.dispose();
+  }
+
+  // Ends every effect straight away (e.g. leaving a clearing).
+  clearEffects() {
+    for (const effect of this.effects) {
+      this.scene.remove(effect.group);
+      effect.group.parent?.remove(effect.group);
+      effect.group.traverse((o) => {
+        if (!o.geometry?.userData.shared) o.geometry?.dispose();
+        if (o.material !== arrowOutline && ![...arrowMaterials.values()].includes(o.material)) o.material?.dispose();
+      });
+    }
+    this.effects = [];
   }
 
   // The player's character model, built from their appearance (see characterModel.js).

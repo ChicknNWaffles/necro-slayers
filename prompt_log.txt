@@ -459,3 +459,25 @@ Please change the scene so that instead of taking place on a green plane hoverin
 please run the game so I can test it
 
 please commit the changes
+
+please make it spawn a random assortment of zombies and skeletons in the clearing, more total than there are now. There should be 5 at minimum
+
+make Evalyn and Fredrick's starting positions in formation behind the player. Also make the formation a little closer to the player in terms of left to right
+
+please run the game so I can test it
+
+please increase the health of all of the party member npcs and the player. Also please make a game over screen that tells the player they died, and make it trigger if the player's health drops to 0
+
+please make it so that when the player enters into one of the paths, it scene changes into a new clearing with new randomly generated enemies. If the enemy generation slows down the transition at all, then optimize by generating the next clearing's enemies while the player is currently fighting through the current clearing. The fights should probably take long enough that you'll have the time to do it in the background. If for some reason it's still working on that when they try to change scene again, you can add another loading screen
+
+please run the game so I can test it myself
+
+please make it so that any dead party members do not follow you to the next clearing. Please also make it so that while loading the next clearing, it removes you from the old scene, and doesn't put you in the new scene until it's done loading it, so that at no point is combat going on with the player unable to join. Please also increase player and party member health again, to make the game more balanced, it is too hard right now
+
+please run the game again so I can test it
+
+maybe don't raise their health that much. The party member npcs could finish the fight even if I did nothing. Somewhere in between the previous value and the current one is the sweet spot
+
+please run the game so I can test it again
+
+please commit the changes

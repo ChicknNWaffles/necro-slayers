@@ -53,6 +53,8 @@ behind the player.
   - `characterClasses.js` – class and weapon choices shared by the creator and game
   - `clearing.js` – the forest clearing's layout, placed at random from a seed: its edge, two paths out, trees, bushes, rocks, and where characters can walk
   - `forestModel.js` – draws the clearing (part of the renderer): toon-shaded trees, bushes, rocks, grass, flowers, dirt paths and a painted forest backdrop
+  - `enemyWorker.js` / `geometryCaches.js` – build the next clearing's enemies in the background (a web worker) and hand their sculpted shapes to the page, so walking down a path into a new clearing is quick
+  - `gameOverScreen.js` – the game over screen, shown when the player dies
   - `index.html` – the game page
   - `style.css` – styles
   - `game.js` – main game script (state, rules, input, game loop)

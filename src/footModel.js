@@ -7,6 +7,7 @@
 // y = FLOOR_Y, toes pointing forwards (-z), for the right foot (+x is the
 // outer side). The left foot is a mirror image.
 import * as THREE from '../node_modules/three/build/three.module.js';
+import { registerGeometryCache } from './geometryCaches.js';
 import { meshFromDistance, smoothUnion, profile, partDistance } from './sculptedSurface.js';
 
 const FLOOR_Y = -0.08;  // the floor, relative to the ankle
@@ -63,7 +64,7 @@ function footDistance(x, y, z) {
   return -smoothUnion(-d, y - FLOOR_Y, 0.006);
 }
 
-const cache = new Map(); // side + build -> geometry
+const cache = registerGeometryCache('feet'); // side + build -> geometry
 const CACHE_SIZE = 8;
 
 // The foot's mesh, including the bottom of the leg blended into the ankle.
