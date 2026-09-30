@@ -280,10 +280,20 @@ export function eyePlacement(eyeSize) {
 
 // Adds eyebrows, blush and freckles to the head's skin material (a toon material).
 // blush, freckles: how strong they are (0 = none, 1 = strongest).
+// Work in display-space HSL, then convert back to the shader's linear colour.
+export function blushColour(skin) {
+  const hsl = skin.getHSL({}, THREE.SRGBColorSpace);
+  const warm = THREE.MathUtils.clamp((hsl.h - 0.045) / 0.085, 0, 1);
+  const hue = THREE.MathUtils.lerp(0.015, 0.07, warm);
+  const saturation = THREE.MathUtils.clamp(hsl.s * 1.25 + 0.22, 0.58, 0.9);
+  const lightness = hsl.l > 0.5 ? hsl.l * 0.73 : hsl.l * 1.12;
+  return new THREE.Color().setHSL(hue, saturation, lightness, THREE.SRGBColorSpace);
+}
+
 export function addFaceColour(material, browColor, R, eyeSize, { blush = 0.3, freckles = 0 } = {}) {
   const uniforms = {
     browColor: { value: new THREE.Color(browColor) }, headRadius: { value: R }, eyeSize: { value: eyeSize },
-    blushAmount: { value: blush }, freckleAmount: { value: freckles },
+    blushColor: { value: blushColour(material.color) }, blushAmount: { value: blush }, freckleAmount: { value: freckles },
   };
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -298,6 +308,7 @@ ${shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex
     shader.fragmentShader = `uniform vec3 browColor;
 uniform float headRadius;
 uniform float eyeSize;
+uniform vec3 blushColor;
 uniform float blushAmount;
 uniform float freckleAmount;
 varying float vLash;
@@ -310,7 +321,7 @@ ${shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fr
     float facing = -normalize(vHeadNormal).z; // 1 on the front of the face
     // Blush on the cheeks.
     float blush = exp(-(pow((ax - 0.42) / 0.14, 2.0) + pow((p.y + 0.33) / 0.09, 2.0))) * step(0.3, facing);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.55, 0.6), blush * blushAmount);
+    diffuseColor.rgb = mix(diffuseColor.rgb, blushColor, blush * blushAmount);
     // Freckles: small, uneven dots scattered over the nose and cheeks, one
     // (or none) in each cell of a grid, fading out towards the edges.
     if (freckleAmount > 0.0) {

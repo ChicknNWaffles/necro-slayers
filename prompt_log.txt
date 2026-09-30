@@ -365,3 +365,91 @@ please add a new enemy type, the skeleton. The skeleton can still have a shirt o
 please make it so that none of the skeletons get breasts, even if they are based on the female model
 
 please commit the changes
+
+please add another part member NPC. His name is Fredrick. Fredrick is fighter class, and he wields a sword and a shield. He should have the same follow/wander mechanics that Evalyn does. Now that he's here, the follow is in a triangle formation, Evalyn on the left, Fredrick on the right. Fredrick is a man. He is slightly taller than the player's average height, and has a muscular, but somewhat lean build. He has olive skin with an orange undertone, with mid to dark brown hair and saturated bright brown eyes that almost look orange in the brighter parts. He wears a tunic (replace the basic shirt in the character creator with this. It has a round t-shirt-like neck line, but with a v cut out of the center front. The v has string going across it in x's to tie it closed, but it's not tied , leaving the strings hanging out of the top corners. The sleeves are wide like t-shirt sleeves. It should have short sleeved and long sleeved variants, and a variant that's tied at the waist with a robe belt, tied at the front, fabric muffin topping wider above the tie, and a variant that's not tied, making it slightly longer. Fredric wears the long sleeved, tied variant, and his is blue). He also wears black pants. Don't make his pants skin tight. He also wears brown boots. He has leather shoulder pauldrons on his shoulders, which attack with straps going around him, and leather arm bracers. The leather is brown. His hair is in a man bun, with side burns and fringy bangs. While you are at it, please take turn all of the clothing color options, except for the white one, and make them less saturated, and slightly tinted towards sepia shades. Also add a yellowy creamy tan to the clothing color options that looks as though you gave white this same treatment
+
+I meant to say attach with straps not attack with straps. My previous prompt contained a typo
+
+I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.
+
+I began making this project using Claude, but I hit my weekly usage limit, so I am coming to you to continue working on it until it resets. The folder I have provided you with contains a file called prompt_log.txt. This file contains all of the prompts that I gave to Claude, separated by a blank line between them. Please read the file to catch up on the context of the project. Pay special attention to the first prompt, as it contains a standing instruction which you are to do with every prompt I give. Since Claude hit it's usage limit in the middle of responding to my last prompt from it, I would like you to assess how far it got on implementing that and report to me where it was at
+
+
+please provide me with a turnaround render of Fredrick's current state, as well as examples of all tunic variants
+
+please increase the amount of bulge on the tied variant, and make both tunic variants narrower. Also I wanted his pants going over the boots like the player's default feet, although I do like this shoe option existing so please keep it in the game for the character creator down the line, as well as for the zombies. I want he back of neck hairline to go lower, much closer to the base of the neck. Please make the fringe bangs go up before they go down, forming a bump/floof, and make them stop a little shorter than they do now. Also sweep them slightly to the side. Please make the hair pieces coming out of his man bun stick out a little more, but make them do so in a curve. Also, I wanted the strings on the tunic to not be tied. Make the crossing x's go all the way up, and the untied strings hang out the corners of the top of the v. Also the rope coming out of the not of the rope belt is clipping into the front of the tunic, I want it to sit on top of it. Also I want the rope belt to be the same color as the strings, not the rest of the tunic. Also please make the knot off center to the side
+
+you don't have to ask for permission to run the game, even in the background to get renders
+
+Please make the fabric bulge above the robe belt blend smoothly into the part of the shirt above that in a curve. Also both variants of the tunic are still too long. The untied one looks like a dress. . Please make the trousers connect more smoothly at the knee as well. The hair pieces out the bottom of the man bun are curving the wrong way. I want them going down then curving out, not going up then curving out. Also please adjust his skin tone to be slightly lighter
+
+please make the curve connecting the main top of the tunic to the bulge be concave instead of convex. Also please show me an example of the long vs short tunic variants
+
+please make the untied tunic have less of an hourglass on the male models. Also there is a glitch with his hair. with the base of his hair going all the way into his jaw. Make his neck side hairline stop when it gets to be in line with his ears
+
+I hit the usage limit while you were doing the last prompt. its back now, please continue
+
+please fix the triangle bald spot behind his ear, and the non tied variant shouldnt have a bulge
+
+please make the non tied variant follow the body shape more
+
+please run the game so I can test it myself
+
+Now it is time to add the character creator. This menu should show up before entering the scene. The player's character model should be on the left side of the screen, able to rotate with the 'a' and 'd' keys. This should include options for every customization feature you have built in, as well as a page to select class. Selecting a class reveals class specific options, such as selecting spells for cleric or mage, selecting weapons for fighter, and selecting bow for archer. This should come with a description of each option. Changing the class selection should hide the old options and reveal the new ones. There should be a button to say that they're done creating the character, which cannot be pressed until a class and spells/weapons have been chosen. Pressing this button goes into the rest of the game
+
+please add a loading screen for while the game is loading after the character creator. Also please add a loading bar while it's loading preview changes in the character creator. Also please make all the color selections contain preset options like the clothing has, and not custom color pickers. Also please make the body build thing make torso and limbs bigger front to back as well as side to side. I like the body type diversity here and want it more realistic. Also please change the UI aesthetic (on both the character creator, and the ability indicators in game) to be more medieval fantasy looking, with earthy tones for the color palate, and menu pieces that look like pieces of old parchment
+
+you ran out of usage please pick up where you left off now that it's back
+
+please alter the weight option so that it not only widens the arms and torso left to right, but also front to back. I like the body type diversity, but I want the heavier options to be more accurate. Also if you could follow that with a few sliders changing the ratios of where the person carries their weight
+
+please run the game so I can test it myself
+
+There is a hole in the model near the chest at larger body sizes. Also, please make the blush color a more saturated version of the skin's undertone, so that it looks better with all skin types. The current blush color hardly shows up on olive skin tones (it should look more orange there) and looks ashy on dark skin tones
+
+please run the game so I can test this myself
+
+There is a similar hold in the mesh on top of the shoulders at larger body sizes. Also please make the rotating work with the arrow keys as well. Also please divide the areas that you currently have separated by lines, into tabs
+
+please run the game so I can test it
+
+Now please add another clothing option, call it "robes". Base it off of the dress, but add a split down the front, tied closed with a wide sash belt.  Make the sleeves go down to the wrists, and the top part before it gets long and flowing be wide and loose like the tunic long sleeves. Also make the large part at the bottom not ruffly
+
+please run the game so I can test it
+
+please make the robes seem less hourglass shaped and more trophy shaped on the male models. Also, please rename the "outfit" section to "top" and, and the "trousers" section to "pants", the "fitted" option in that section to "tights", and the "loose" option in that section to "trousers"
+
+please run the game so I can test it
+
+please make the short sleeved tied tunic (rename this "short sleeved tunic with belt"), short sleeved untied tunic (rename this "short sleeved tunic"), long sleeved tied tunic (rename this to "long sleeved tunic with belt"), and long sleeved untied tunic (rename this to "long sleeved tunic") all listed separately in the tops section, instead of having short sleeved/long sleeved and tied/untied as seperate sections
+
+please alter the ponytail and pig tailed hair options so that their hair is visibly tied back going into those updoes. Also please separate the bangs for the hairstyles into a separate option so they can be mixed and matched
+
+I started this project using you, but you hit your weekly limit, so I switched to ChatGPT Astra, but now you're back and it hit it's session limit, so I'm switching back. The folder I have given you access to contains a file called prompt_log.txt. It contains all of the prompts I have used thus far, separated by a blank line. Please read it to catch up on the context. Pay special attention to the first prompt as it contains a standing command to be followed with every prompt. Also, ChatGPT hit it's usage limit in the middle of completing the final prompt, so please assess how far it got, report on that, and then attempt to pick up where it left off
+
+please run the game so I can test it
+
+please rename the "lifted" bangs to "fringe". Also, you messed up when separating out the side swept bangs. You got most of it, but you missed the portion on the other side of the part
+
+please make the long hair hang a little straighter so it's not so baloney, and then add one more bangs type, cowlick/blowout style bangs
+
+You got the blowout cowlick bangs all wrong. That is supposed to be an off center part hair style like the side sweep, but instead of sweeping to the side, it goes up in a cowlick, has a bump above the forehead, goes back down then curves to the side pointing away from the face, then curves back in towards the face where it then stops. This final point should be at mid-cheek height. The other side of the part either is swept behind the ear, or follows a similar curve but without the hump up first, going straight into the down part of the curve
+
+please make the ends that go back in towards the face wind up more horizontal before they stop. Also please make the down before it goes out part of the curve more pronounced, and fill in the back of the bump so we don't see the front of the hair-color-fill on the head
+
+can you make the blowout bangs come with more of a widow's peak hairline? Not fully widow's peak, but like, somewhat leaning that way so it doesn't hid the shape of the bangs
+
+please add one final hairstyle option. It should be base/close to the head on the sides and have some fluffy hair at the top. This hair should not go further down than the tops of the ears. This hair style should be a good option for guys, but if used by a girl would probably come off as a pixie cut. Rename the "short" hairstyle to "bob" and call this new one "short"
+
+
+please run the game so I can test it
+
+please add chainmail armor as an option. You can literally use the short sleeved tunic as a base for this, but remove the sleeves entirely, put a chainmail pattern painted onto it, make it transparent elsewhere, and sit on top of whatever else is on. Also, please create a basic metal armor. This can just be chest plate, pauldrons, plates on the front of the thighs tied on with leather
+
+please remove the sleeves from the chainmail, and raise the height of the metal pauldrons. Also, I want the chainmail to be an option in the armor selection, wearing it with the chainmail should be impossible
+
+please run the game so I can test it
+
+please raise the height of the leather pauldrons just a little, as the tunic sleeves are clipping through them just a little on the default body size
+
+please commit the changes

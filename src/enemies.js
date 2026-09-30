@@ -5,7 +5,7 @@
 // drained towards grey and a few wounds are chosen where the flesh is gone
 // and bone shows through (the rot, torn clothes and wounds are drawn by the
 // renderer, see decayModel.js).
-import { APPEARANCE_OPTIONS, createAppearance } from './characterAppearance.js';
+import { APPEARANCE_OPTIONS, CLOTHING_COLORS, createAppearance } from './characterAppearance.js';
 
 // Natural skin tones to start from, before they're greyed.
 const SKIN_TONES = ['#f6d9c6', '#efc9a8', '#e0ac85', '#c68e64', '#9a6844', '#6e4a31'];
@@ -36,11 +36,13 @@ export function createZombie(random = Math.random) {
     freckles: random() < 0.3 ? 0.5 : 0,
     hairStyle: option('hairStyle'),
     hairColor: mixColors(pick(HAIR_COLORS), '#6d6a64', 0.3), // dulled
-    outfit: random() < 0.8 ? 'casual' : 'dress',
-    shirtColor: grimy(randomColor(random)),
-    pantsColor: grimy(randomColor(random)),
-    footwear: random() < 0.8 ? 'shoes' : 'sandals',
-    shoeColor: grimy(randomColor(random)),
+    outfit: random() < 0.8 ? 'tunic' : 'dress',
+    tunicSleeves: option('tunicSleeves'),
+    tunicBelt: option('tunicBelt'),
+    shirtColor: grimy(pick(Object.values(CLOTHING_COLORS))),
+    pantsColor: grimy(pick(Object.values(CLOTHING_COLORS))),
+    footwear: pick(['shoes', 'shoes', 'boots', 'sandals']),
+    shoeColor: grimy(pick(Object.values(CLOTHING_COLORS))),
   });
 
   // One to three wounds, on different limbs.
@@ -58,7 +60,7 @@ export function createZombie(random = Math.random) {
 // sword or a short bow, equally likely.
 export function createSkeleton(random = Math.random) {
   const { appearance } = createZombie(random);
-  appearance.outfit = 'casual';
+  appearance.outfit = 'tunic';
   return {
     appearance,
     decay: { seed: Math.floor(random() * 1000) / 10, wounds: [], skeletal: true },
@@ -95,6 +97,3 @@ function grimy(hex) {
   return mixColors(hex, '#5b5446', 0.45);
 }
 
-function randomColor(random) {
-  return toHex([random() * 255, random() * 255, random() * 255]);
-}

@@ -1,7 +1,7 @@
 // Main game script: game state, rules, input handling and the game loop.
 // Uses the 3D renderer (renderer.js) to draw each frame.
 import { GameRenderer, WALL_CRUMBLE_TIME } from './renderer.js';
-import { createAppearance } from './characterAppearance.js';
+import { createAppearance, CLOTHING_COLORS } from './characterAppearance.js';
 import {
   playVoice, startAudio, playSwing, playSmite, playSummon, playSwordImpact, playSnarl, playClaw, playWound, playHealing, playShield, playEmpower, playBeam, playWeaponHit, playFireball, playExplosion, playVines, playShove, playEarth, playSquelch, playThrob, playIgnite,
 } from './sound.js';
@@ -13,6 +13,13 @@ import {
 import { COMMAND_CALL } from './voice.js';
 import { createZombie, createSkeleton } from './enemies.js';
 import { Hud } from './hud.js';
+import { CLASSES, WEAPONS } from './characterClasses.js';
+import { showCharacterCreator } from './characterCreator.js';
+import { sceneLoadingStep, hideSceneLoading } from './loadingScreen.js';
+
+// Pause startup here: no world, gameplay input or mouse capture until Done.
+const PLAYER_CHOICES = await showCharacterCreator();
+let gameplayReady = false;
 
 // --- World ---------------------------------------------------------------
 
@@ -46,7 +53,7 @@ const player = {
   onGround: false,
   jumpBuffered: false,    // jump was pressed just before landing
   strafeTurn: 0,          // extra body rotation while moving sideways (visual only)
-  appearance: createAppearance(), // how the character looks (see characterAppearance.js)
+  appearance: createAppearance(PLAYER_CHOICES.appearance), // how the character looks (see characterAppearance.js)
   name: 'You',
   maxHealth: 100,
   health: 100,
@@ -54,8 +61,8 @@ const player = {
   empowerTime: 0, // seconds of Sovereign Aid left
   stunTime: 0,    // seconds of being stunned left (see Cleansing Light)
   // The player's class decides what they can do (see CLASSES): a cleric picks
-  // spells (see chooseSpells), a fighter weapons (see chooseWeapons). There's
-  // no character creator to choose these yet -- see PLAYER_CHOICES.
+  // spells (see chooseSpells), a fighter weapons (see chooseWeapons).
+  // Creation choices are applied during setup below.
   characterClass: 'cleric',
   spells: [],
   weapons: [],
@@ -69,31 +76,7 @@ const player = {
 
 // Character classes: what the player can do if they choose one.
 //   spells: the spells the class can learn; slots: how many of them the player picks
-const CLASSES = {
-  // All four of Evalyn's spells, and two she doesn't know.
-  cleric: {
-    spells: ['smite', 'divineBlade', 'divineRestoration', 'shieldOfFaith', 'sovereignAid', 'cleansingLight'],
-    slots: 4,
-  },
-  // A sword, a shield, and a halberd -- two hands' worth of them: the sword
-  // and shield can be carried together, but the halberd takes both hands.
-  fighter: {
-    weapons: ['sword', 'shield', 'halberd'],
-    slots: 2,
-  },
-  // One of three bows (chosen at character creation), and a dagger for when
-  // enemies get too close. (The player only -- no NPC archers.)
-  archer: {
-    bows: ['shortbow', 'longbow', 'crossbow'],
-  },
-  // Six spells of fire, nature and arcane power, of which the player picks
-  // four.
-  mage: {
-    spells: ['fireball', 'vineTrap', 'powerShove', 'wallOfEarth', 'leachBomb', 'burningGround'],
-    slots: 4,
-    magic: 'fire', // (the colour of the glow in their hands)
-  },
-};
+
 
 // An archer's weapons: their bow, and a dagger.
 function chooseBow(characterClass, bow) {
@@ -120,19 +103,6 @@ function chooseWeapons(characterClass, picks) {
   }
   return chosen;
 }
-
-// What the player chose, until there's a character creator: their class, and
-// their spells (a cleric), weapons (a fighter) or bow (an archer). Change
-// these to try another.
-const PLAYER_CHOICES = {
-  characterClass: 'mage',     // 'cleric', 'fighter', 'archer' or 'mage'
-  spells: {
-    cleric: ['smite', 'divineRestoration', 'sovereignAid', 'cleansingLight'],
-    mage: ['fireball', 'vineTrap', 'leachBomb', 'burningGround'],
-  },
-  weapons: ['halberd'],       // (or ['sword', 'shield'])
-  bow: 'shortbow',            // 'shortbow', 'longbow' or 'crossbow'
-};
 
 // Change how the player looks, e.g. from a character creator. Accepts a full
 // or partial appearance; anything missing or invalid keeps its current value.
@@ -183,6 +153,49 @@ const NPCS = [
     maxHealth: 80,
     spells: ['divineRestoration', 'shieldOfFaith', 'divineBlade', 'smite'], // (in order of preference)
     caster: true,
+    formation: 'left', // (her place behind the player when following -- see FORMATION)
+  },
+  {
+    // Fredrick, a fighter with a sword and shield: a tall, lean, muscular man
+    // with olive skin, bright amber-brown eyes and his brown hair in a man
+    // bun; in a long-sleeved blue tunic belted at the waist, loose black
+    // trousers, brown boots, and leather pauldrons and bracers.
+    name: 'Fredrick',
+    role: 'fighter',
+    appearance: createAppearance({
+      bodyType: 'male',
+      height: 1.05,            // a little taller than average
+      build: 1.02,             // lean, but muscular
+      skinColor: '#cea77c',    // slightly lighter olive, with an orange undertone
+      eyeColor: '#e37b12',     // a bright, saturated brown -- almost orange
+      blush: 0.12,
+      hairStyle: 'manBun',
+      hairColor: '#4a2e1c',    // mid-to-dark brown
+      outfit: 'tunic',
+      tunicSleeves: 'long',
+      tunicBelt: 'tied',
+      shirtColor: CLOTHING_COLORS.blue,
+      pantsFit: 'loose',
+      pantsColor: CLOTHING_COLORS.black,
+      footwear: 'shoes', // trouser hems over the boot-shaped feet; tall boots remain an option
+      shoeColor: '#5e3a22',    // brown boots
+      armor: 'leather',
+      leatherColor: '#6b4428',
+    }),
+    weapons: ['sword', 'shield'],
+    position: { x: 6, y: FLOOR.y, z: -7 },
+    yaw: Math.atan2(6, -7),
+    radius: 0.5,
+    follows: true,
+    maxHealth: 130,
+    // A sword-and-shield fighter's moves (see MOVES), picked at random: mostly
+    // slashes and stabs, now and then a shield bash; and he raises his shield
+    // against blows (and arrows) coming at him -- see guard.
+    attacks: ['slash', 'slash', 'stab', 'stab', 'bash'],
+    attackPause: [0.5, 1.1],
+    blocks: true,
+    guardRange: 6, // (while following, he leaves his place to fight enemies this close to the player)
+    formation: 'right',
   },
   {
     // A zombie: the first enemy (a random character, see enemies.js). It
@@ -344,15 +357,7 @@ function playerSlots() {
 
 // Each weapon has two moves. Like spells, the number keys choose one and
 // left click uses it (for Block, left click is held).
-const WEAPONS = {
-  sword: { label: 'Sword', hands: 1, moves: ['stab', 'slash'] },
-  shield: { label: 'Shield', hands: 1, moves: ['block', 'bash'] },
-  halberd: { label: 'Halberd', hands: 2, moves: ['axeSlash', 'hammer'] },
-  shortbow: { label: 'Short Bow', hands: 2, moves: ['shortbowShot'] },
-  longbow: { label: 'Long Bow', hands: 2, moves: ['longbowShot'] },
-  crossbow: { label: 'Crossbow', hands: 2, moves: ['crossbowShot'] },
-  dagger: { label: 'Dagger', hands: 1, moves: ['daggerStab'] },
-};
+
 
 // The moves, used like spells (see landSpell):
 //   strike: a melee blow -- range: how far it reaches; arc: how wide (radians
@@ -784,6 +789,16 @@ function chooseMove(npc, dt) {
     // ...then followers keep in formation, and the rest go after the enemies
     // (spellcasters skirmishing round them rather than standing toe to toe).
     const target = nearest(npc, livingEnemies());
+    if (npc.blocks) {
+      // A fighter: shield up against anything coming at him; otherwise at
+      // the nearest enemy -- though while following, only those that come
+      // close to the player (keeping his place in the formation till then).
+      const threat = guard(npc);
+      if (threat) return { face: threat.position };
+      const near = nearest(player, livingEnemies());
+      if (npc.following && !(near && distanceBetween(near.position, player.position) <= npc.guardRange)) return keepFormation(npc);
+      return approach(npc, npc.following ? near : target);
+    }
     if (npc.following) return keepFormation(npc);
     return npc.spells ? skirmish(npc, target, dt) : approach(npc, target);
   }
@@ -791,7 +806,18 @@ function chooseMove(npc, dt) {
 }
 
 // Following the player: set off when they get far enough away; stop once close behind them.
+// (Someone with a place in the formation -- see FORMATION -- keeps to it instead.)
 function follow(npc) {
+  if (FORMATION[npc.formation]) {
+    const goal = formationSpot(npc);
+    const distance = distanceBetween(npc.position, goal);
+    const wasMoving = npc.moveSpeed > 0;
+    // (Facing the way the player faces.)
+    const face = { x: goal.x - Math.sin(player.yaw) * 5, z: goal.z - Math.cos(player.yaw) * 5 };
+    if (distance <= 0.2 + (wasMoving ? 0 : NPC_MOVE.followSlack)) return { face };
+    const running = (capsLockOn && player.moveSpeed > 0) || distance > COMBAT.runDistance;
+    return { goal, speed: running ? PLAYER.runSpeed : PLAYER.speed, running, face };
+  }
   const distance = distanceBetween(npc.position, player.position);
   const wasMoving = npc.moveSpeed > 0;
   if (distance <= NPC_MOVE.followDistance + (wasMoving ? 0 : NPC_MOVE.followSlack)) return { face: player.position };
@@ -853,14 +879,28 @@ function keepAtRange(npc, target, [near, far]) {
 
 // In formation: each follower has a place beside and behind the player,
 // turning with them, and keeps to it (running to catch up), facing the enemy.
-function keepFormation(npc) {
-  const slot = COMBAT.formation[partyMembers().indexOf(npc) - 1] ?? COMBAT.formation[0];
+// Followers walk in a triangle with the player at its point: Evalyn behind
+// on the left, Fredrick behind on the right (units to the player's right, and behind).
+const FORMATION = {
+  left: { right: -1.3, back: 1.3 },
+  right: { right: 1.3, back: 1.3 },
+  rear: { right: 0, back: 2.2 },
+};
+
+function formationSpot(npc) {
+  const slot = FORMATION[npc.formation] ?? FORMATION.rear;
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   // (The player's right is (cos, -sin) and forward is (-sin, -cos).)
   const goal = {
     x: player.position.x + cos * slot.right + sin * slot.back,
     z: player.position.z - sin * slot.right + cos * slot.back,
   };
+  keepOnFloor(goal);
+  return goal;
+}
+
+function keepFormation(npc) {
+  const goal = formationSpot(npc);
   const face = nearest(npc, livingEnemies())?.position;
   const distance = distanceBetween(npc.position, goal);
   if (distance < 0.25) return { face };
@@ -925,6 +965,7 @@ function updateNpc(npc, dt) {
   const start = { x: pos.x, z: pos.z };
   const knocked = updateKnockback(npc, dt);
   let { goal = null, speed = 0, running = false, face = null } = npc.dead || npc.stunTime > 0 || knocked ? {} : chooseMove(npc, dt);
+  if (npc.blocks) updateBlocking(npc, dt);
   if (goal && walls.length) {
     const route = routeAroundWalls(npc, goal, dt);
     if (!route.goal) face = route.face ?? face;
@@ -1217,11 +1258,12 @@ const ATTACKS = {
 };
 
 // In combat, an enemy attacks the nearest member of the party (the player or
-// anyone with them) who's within reach, every so often.
+// anyone with them) who's within reach, every so often -- and a fighter in
+// the party the nearest enemy.
 function attack(npc, dt) {
   npc.attackTimer = (npc.attackTimer ?? 0.6) - dt;
-  if (npc.casting || !combat.active || npc.attackTimer > 0) return;
-  const target = nearest(npc, livingParty());
+  if (npc.casting || npc.blocking || !combat.active || npc.attackTimer > 0) return;
+  const target = nearest(npc, partyMembers().includes(npc) ? livingEnemies() : livingParty());
   if (!target) return;
   const name = npc.attacks[Math.floor(Math.random() * npc.attacks.length)];
   // (A zombie's claws and teeth, or a weapon's moves -- used as the player uses them.)
@@ -1235,6 +1277,31 @@ function attack(npc, dt) {
   if (move.bite) playSnarl();
   else if (move.bite === false) playClaw();
   else if (move.strike) playSwing();
+}
+
+// A fighter with a shield raises it while an enemy is attacking him -- mid
+// swing, or drawing a bow on him -- and for a moment after; he can't attack
+// while it's up. Returns the enemy he's guarding against, if any.
+const GUARD = { reach: 3.5, hold: 0.35 };
+
+function guard(npc) {
+  const threat = livingEnemies().find((enemy) => enemy.casting?.target === npc && !enemy.casting.landed
+    && distanceBetween(enemy.position, npc.position) <= (enemy.casting.spell.shot ? enemy.casting.spell.shot.range : GUARD.reach));
+  if (threat) {
+    npc.guardTime = GUARD.hold;
+    npc.guarding = threat;
+  }
+  return npc.guardTime > 0 && !npc.guarding?.dead ? npc.guarding : null;
+}
+
+// Raising or lowering the shield (with the model's guard pose).
+function updateBlocking(npc, dt) {
+  npc.guardTime = Math.max((npc.guardTime ?? 0) - dt, 0);
+  const blocking = npc.guardTime > 0 && combat.active && !npc.dead && !npc.casting && !(npc.stunTime > 0);
+  if (blocking !== Boolean(npc.blocking)) {
+    npc.blocking = blocking;
+    renderer.setBlocking(npc.view, blocking);
+  }
 }
 
 // Who a healer would heal: whoever in the party is worst hurt, as a share of
@@ -1737,8 +1804,6 @@ const COMBAT = {
   endRange: 14,       // how far from every enemy the party must be for it to end
   reach: 1.3,         // how close fighters get to their target
   runDistance: 4,     // further than this, fighters run to their target (or place in formation)
-  // Followers' places round the player (units to the player's right, and behind).
-  formation: [{ right: 1.4, back: 1.2 }, { right: -1.4, back: 1.2 }, { right: 0, back: 2.2 }],
 };
 
 const combat = { active: false };
@@ -1873,6 +1938,7 @@ const KEY_BINDINGS = {
 const heldKeys = new Set();
 
 window.addEventListener('keydown', (e) => {
+  if (!gameplayReady) return;
   if (e.key === 'Shift') startOrbit();
   if (e.key.toLowerCase() === 'z' && !e.repeat) toggleFollowing();
   const spellSlot = PLAYER_SPELL_KEYS.indexOf(e.key);
@@ -1889,6 +1955,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
+  if (!gameplayReady) return;
   if (e.key === 'Shift') stopOrbit();
   heldKeys.delete(e.key.toLowerCase());
 });
@@ -2019,22 +2086,29 @@ function updatePlayer(dt) {
 
 // --- Setup and game loop -------------------------------------------------
 
+await sceneLoadingStep('Laying out the world…', 5);
 const renderer = new GameRenderer(document.body);
 renderer.addFloor(FLOOR);
 player.characterClass = PLAYER_CHOICES.characterClass;
-if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells[player.characterClass] ?? []);
+if (CLASSES[player.characterClass].spells) player.spells = chooseSpells(player.characterClass, PLAYER_CHOICES.spells);
 if (CLASSES[player.characterClass].weapons) player.weapons = chooseWeapons(player.characterClass, PLAYER_CHOICES.weapons);
 if (CLASSES[player.characterClass].bows) player.weapons = chooseBow(player.characterClass, PLAYER_CHOICES.bow);
+await sceneLoadingStep('Preparing your character…', 15);
 renderer.addPlayer(player.appearance, {
   caster: player.spells.length > 0 && (CLASSES[player.characterClass].magic ?? 'holy'),
   weapons: player.weapons,
 });
 player.view = renderer.playerModel;
 showSelectedWeapon();
-for (const npc of NPCS) npc.view = renderer.addNpc(npc);
+for (let i = 0; i < NPCS.length; i++) {
+  const npc = NPCS[i];
+  await sceneLoadingStep(`Preparing ${npc.name || 'an enemy'}…`, 25 + (i / NPCS.length) * 50);
+  npc.view = renderer.addNpc(npc);
+}
 
 // The HUD (see hud.js): the party's health bars, with their portraits, and
 // the enemies' health bars.
+await sceneLoadingStep('Preparing portraits and abilities…', 80);
 const hud = new Hud(document.body);
 hud.setParty(partyMembers().map((member) => ({
   id: member, name: member.name, portrait: renderer.portrait(member.view),
@@ -2092,6 +2166,7 @@ const MOUSE_CAPTURE_RETRY_MS = 250;
 // capture goes through the main process (see main.js). The window may not have
 // focus straight away, so keep trying until the first capture succeeds.
 function captureMouseOnStartup() {
+  if (!gameplayReady) return;
   if (document.pointerLockElement === renderer.canvas) {
     clearInterval(startupCapture);
   } else if (document.hasFocus()) {
@@ -2202,4 +2277,9 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-requestAnimationFrame(frame);
+await sceneLoadingStep('Opening the road ahead…', 95);
+frame(performance.now());
+await sceneLoadingStep('Ready', 100);
+hideSceneLoading();
+gameplayReady = true;
+captureMouseOnStartup();
