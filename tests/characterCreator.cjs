@@ -26,6 +26,18 @@ app.whenReady().then(async () => {
   };
   try {
     await win.loadFile(path.resolve(__dirname, '../src/index.html'));
+    // The start menu first: start, controls, close.
+    await wait(`Boolean(document.querySelector('#start-menu .start-game'))`);
+    assert.deepEqual(await run(`Array.from(document.querySelectorAll('#start-menu .start-buttons button'), (b) => b.textContent)`), ['Start game', 'Controls', 'Close game']);
+    assert.equal(await run(`document.querySelector('#character-creator') !== null`), false, 'No creator until the game is started');
+    await click('#start-menu .show-controls');
+    assert(await run(`document.querySelectorAll('#controls-menu dt').length >= 10`), 'Controls are listed');
+    await capture('controls');
+    await click('#controls-menu .back');
+    assert.equal(await run(`document.querySelector('#controls-menu')`), null, 'Back closes the controls');
+    await capture('start-menu');
+    await click('#start-menu .start-game');
+    assert.equal(await run(`document.querySelector('#start-menu')`), null, 'Start closes the menu');
     await wait(`document.querySelector('.creator-render-status')?.textContent === 'Preview ready'`);
     await run(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     assert(await disabled(), 'Done must initially be disabled');

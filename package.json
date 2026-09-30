@@ -1,17 +1,41 @@
 {
   "name": "vibecode-3d-game",
   "version": "0.1.0",
+  "productName": "Necro Slayers",
   "description": "A 3D game built with HTML, CSS and JavaScript, running locally in Electron.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win portable && node -e \"require('fs').mkdirSync('release',{recursive:true});require('fs').copyFileSync('dist/Necro Slayers.exe','release/Necro Slayers.exe')\""
   },
   "author": "Elora",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^37.0.0"
+    "electron": "^37.0.0",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "three": "^0.186.1"
+  },
+  "build": {
+    "appId": "com.necroslayers.game",
+    "productName": "Necro Slayers",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.png"
+    },
+    "portable": {
+      "artifactName": "Necro Slayers.exe"
+    }
   }
 }

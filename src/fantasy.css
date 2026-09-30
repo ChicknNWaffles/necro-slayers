@@ -72,10 +72,24 @@
 .game-over-sigil { font-size: 44px; color: #7c2a1c; }
 .game-over-parchment h1 { font-size: 40px; font-weight: normal; margin: 10px 0 16px; color: #5b1c12; letter-spacing: .04em; }
 .game-over-message { color: #5d452b; font-style: italic; margin: 0 0 26px; }
-.game-over-retry { font: inherit; font-size: 17px; padding: 9px 30px; color: #f3e3bd; background: linear-gradient(#7a5530, #4e3219); border: 1px solid #2f1f10; border-radius: 3px 7px 4px 6px; box-shadow: 0 2px 5px #0007, inset 0 1px #b58a5a; cursor: pointer; }
-.game-over-retry:hover, .game-over-retry:focus-visible { background: linear-gradient(#8e6538, #5b3b1e); outline: 2px solid #edd08a; outline-offset: 2px; }
 @keyframes game-over-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes game-over-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 /* Moving on to a new clearing: the screen fades to black and back. */
 #scene-fade { position: fixed; inset: 0; z-index: 90; background: #0b0806; opacity: 0; pointer-events: none; transition: opacity 500ms ease; }
 #scene-fade.dark { opacity: 1; }
+/* The start menu and controls page: parchment over a dark forest. */
+#start-menu { position: fixed; inset: 0; z-index: 150; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 35%, #3f5a3a, #1c2618 60%, #0e130c); color: var(--ink); font-family: Georgia, 'Palatino Linotype', serif; }
+.start-parchment { width: min(520px, 80vw); padding: 38px 48px 42px; text-align: center; background: var(--parchment); border: 2px solid #96703c; outline: 1px solid #c7a565; outline-offset: -9px; box-shadow: 0 15px 65px #000b, inset 0 0 40px #91602755; border-radius: 5px 12px 6px 10px; }
+.start-parchment h1 { font-size: 38px; font-weight: normal; margin: 12px 0 28px; color: #352517; }
+.start-buttons { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.menu-button { min-width: 230px; font: inherit; font-size: 18px; padding: 10px 28px; color: #f3e3bd; background: linear-gradient(#7a5530, #4e3219); border: 1px solid #2f1f10; border-radius: 3px 7px 4px 6px; box-shadow: 0 2px 5px #0007, inset 0 1px #b58a5a; cursor: pointer; }
+.menu-button.quiet { color: #4c321b; background: linear-gradient(#e2c996, #c9a86c); border-color: #8b6636; box-shadow: 0 1px 3px #0004, inset 0 1px #f4e3bd; }
+.menu-button:hover, .menu-button:focus-visible { filter: brightness(1.12); outline: 2px solid #edd08a; outline-offset: 2px; }
+#controls-menu { position: fixed; inset: 0; z-index: 160; display: grid; place-items: center; overflow-y: auto; padding: 24px 0; background: #0e130ccc; }
+.controls-parchment { width: min(640px, 88vw); text-align: left; }
+.controls-parchment h1 { text-align: center; margin: 0 0 8px; }
+.controls-parchment h2 { font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: #75552d; border-bottom: 1px solid #b59462; padding-bottom: 4px; margin: 20px 0 8px; font-weight: normal; }
+.controls-parchment dl { display: grid; grid-template-columns: minmax(150px, 34%) 1fr; gap: 6px 18px; margin: 0; }
+.controls-parchment dt { font-weight: bold; color: #4b3019; }
+.controls-parchment dd { margin: 0; color: #4f3c27; }
+.controls-parchment .back { display: block; margin: 26px auto 0; }

@@ -6,4 +6,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronWindow', {
   // Ask the main process to capture the mouse for the game (see main.js).
   captureMouse: () => ipcRenderer.send('capture-mouse'),
+  // Close the game (see main.js).
+  quitGame: () => ipcRenderer.send('quit-game'),
 });

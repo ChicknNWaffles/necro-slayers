@@ -22,6 +22,8 @@ app.whenReady().then(async () => {
   const enemies = () => run(`window.gameDebug.NPCS.filter((n) => n.role === 'enemy').length`);
   try {
     await win.loadFile(path.resolve(__dirname, '../src/index.html'), { query: { debug: '1' } });
+    await wait(`Boolean(document.querySelector('#start-menu .start-game'))`);
+    await run(`document.querySelector('#start-menu .start-game').click()`);
     await wait(`document.querySelector('.creator-render-status')?.textContent === 'Preview ready'`);
     await run(`document.querySelector('input[name="characterClass"][value="mage"]').click()`);
     for (const spell of ['fireball', 'vineTrap', 'powerShove', 'wallOfEarth']) await run(`document.querySelector('input[name="loadout"][value="${spell}"]').click()`);

@@ -15,12 +15,15 @@ import { createZombie, createSkeleton } from './enemies.js';
 import { Hud } from './hud.js';
 import { CLASSES, WEAPONS } from './characterClasses.js';
 import { showCharacterCreator } from './characterCreator.js';
+import { showStartMenu } from './startMenu.js';
 import { sceneLoadingStep, hideSceneLoading, nextPaint } from './loadingScreen.js';
 import { installGeometry } from './geometryCaches.js';
 import { createClearing } from './clearing.js';
 import { showGameOver } from './gameOverScreen.js';
 
-// Pause startup here: no world, gameplay input or mouse capture until Done.
+// Pause startup here: no world, gameplay input or mouse capture until the
+// player starts from the start menu, then finishes making their character.
+await showStartMenu();
 const PLAYER_CHOICES = await showCharacterCreator();
 let gameplayReady = false;
 

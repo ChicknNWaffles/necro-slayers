@@ -485,3 +485,17 @@ please commit the changes
 please make the average number of enemies spawned in a clearing slowing increase the more clearings deep the player goes
 
 please commit the changes
+
+please create a start menu and a controls instructions menu. The start menu should have a button to start the game, a button to look at the controls, and a button to close the game. The game over screen should have a button going back to the start menu, and a button to close the game as well.
+
+please run the game so I can test it
+
+please remove the instruction to walk down a path to go to the next clearing from the controls menu, and set the game to full screen. Change the name of the game, both in the start menu, and at the top of the game window to "Necro Slayers". Then make a simple sword and shield icon in the color scheme and set it up to replace the electron app icon
+
+please run the game so I can see this for myself
+
+please compile the electron project into a single executable which can be opened by double click. Please ensure that the executable's name matches the game's name, "Necro Slayers"
+
+please commit the changes
+
+please revert the change I made to .gitignore then, and move the executable somewhere it will be accessible from the repo

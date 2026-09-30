@@ -1,4 +1,4 @@
-# Vibecode 3D Game
+# Necro Slayers
 
 A 3D game built with HTML, CSS and JavaScript, run locally as an Electron app.
 Made for an AI class assignment; every prompt used is recorded in `prompt_log.txt`.
@@ -14,9 +14,23 @@ npm install
 npm start
 ```
 
+## Build a single executable (Windows)
+
+```
+npm run build
+```
+
+This makes `release/Necro Slayers.exe`: one portable file that runs the game
+when double-clicked (no install needed). It's built with electron-builder (the
+rest of its working files stay in `dist/`, which isn't kept in the repo),
+using the icon in `assets/`.
+
+A ready-built copy is kept in the repo at `release/Necro Slayers.exe`.
+
 ## Controls
 
-The game opens with character creation. Use the Body, Face, Hair, and Clothing
+The game opens with a start menu (start the game, see the controls, or close
+the game), then character creation. Use the Body, Face, Hair, and Clothing
 tabs to customize appearance, hold **A / D** or **Left / Right arrows**
 to rotate the preview, then open **Class & abilities**. Clerics and mages choose
 four spells; fighters choose sword and shield or a halberd; archers choose one
@@ -47,6 +61,8 @@ behind the player.
 ## Layout
 
 - `main.js` – Electron main process (creates the window)
+- `release/Necro Slayers.exe` – the game, built into a single executable (see above)
+- `assets/icon.svg` / `icon.png` – the game's icon (a sword and shield), used for the window and taskbar
 - `preload.js` – preload script (bridge between Electron and the page; will handle loading save files)
 - `src/` – the game itself
   - `characterCreator.js` / `characterCreator.css` – appearance preview and class selection before gameplay
@@ -54,7 +70,8 @@ behind the player.
   - `clearing.js` – the forest clearing's layout, placed at random from a seed: its edge, two paths out, trees, bushes, rocks, and where characters can walk
   - `forestModel.js` – draws the clearing (part of the renderer): toon-shaded trees, bushes, rocks, grass, flowers, dirt paths and a painted forest backdrop
   - `enemyWorker.js` / `geometryCaches.js` – build the next clearing's enemies in the background (a web worker) and hand their sculpted shapes to the page, so walking down a path into a new clearing is quick
-  - `gameOverScreen.js` – the game over screen, shown when the player dies
+  - `gameOverScreen.js` – the game over screen, shown when the player dies (back to the start menu, or close the game)
+  - `startMenu.js` – the start menu and the controls page
   - `index.html` – the game page
   - `style.css` – styles
   - `game.js` – main game script (state, rules, input, game loop)

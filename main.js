@@ -11,10 +11,16 @@ ipcMain.on('capture-mouse', (event) => {
     .catch(() => {}); // can fail if the window isn't focused yet; the game retries
 });
 
+// Close the game (from its menus).
+ipcMain.on('quit-game', () => app.quit());
+
 function createWindow() {
   const win = new BrowserWindow({
+    title: 'Necro Slayers',
+    icon: path.join(__dirname, 'assets', 'icon.png'), // (a sword and shield -- see assets/icon.svg)
     width: 1280,
     height: 720,
+    fullscreen: true,
     backgroundColor: '#ffffff',
     autoHideMenuBar: true, // (a game has no menu bar -- see below)
     webPreferences: {
