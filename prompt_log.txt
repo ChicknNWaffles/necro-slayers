@@ -499,3 +499,5 @@ please compile the electron project into a single executable which can be opened
 please commit the changes
 
 please revert the change I made to .gitignore then, and move the executable somewhere it will be accessible from the repo
+
+one final request. Please publish this git repo to github, so that it will have a remote repo and I can send my professor the link
