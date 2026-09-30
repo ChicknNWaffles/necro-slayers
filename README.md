@@ -9,6 +9,8 @@ Made for an AI class assignment; every prompt used is recorded in `prompt_log.tx
 
 ## Run it
 
+Double click the "Necro Slayers.exe" file in the "release" folder to run the final version of the game.
+or, for the pre-built version:
 ```
 npm install
 npm start
